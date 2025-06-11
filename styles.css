@@ -1,0 +1,11 @@
+/* css styles */
+
+.full-page-widget {
+  /* make the widget as wide as the viewport */
+  width: 100vw !important;
+
+  /* pull it left & right by half the viewport width
+     so its left edge touches the browser’s left edge  */
+   /*margin-left: calc(50% - 50vw) !important;
+   /*margin-right: calc(50% - 50vw) !important;
+}

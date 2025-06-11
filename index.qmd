@@ -1,0 +1,963 @@
+---
+title: "What are the environmental factors that drive chlorophyll-a (Chl-a) concentration in the Arctic Ocean?"
+author: "Simon Oiry"
+format:
+  html:
+    css: styles.css
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r library}
+#| cache: false
+#| echo: false
+#| warning: false
+
+library(tidyverse)
+library(lubridate)
+library(brms)
+library(purrr)
+library(dplyr)
+library(Utilities.Package)
+```
+
+```{r Open Chlorophyll}
+#| cache: false
+#| echo: false
+#| warning: false
+
+# Read in
+df_chla <- readxl::read_xlsx("Data/Chla_and_Environment.xlsx") %>% 
+  mutate(Date = as.Date(gsub("'","",Date)))
+
+```
+
+
+::: {style="text-align: center; margin-top: 20px;"}
+<button onclick="window.open(&#39;https://github.com/SigOiry/AO_Chla_GAM&#39;, &#39;_blank&#39;);" style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;">
+
+Visit the Github repository
+
+</button>
+:::
+
+# Study sites
+
+```{r leaflet map}
+#| label: fig-map_sites
+#| fig-cap: Map of the 3 regions investigated in this study
+#| echo: false
+#| error: false
+#| message: false
+#| warning: false
+#| out-width: "95%"
+
+
+# install.packages(c("sf","leaflet"))  # uncomment to install if needed
+library(sf)
+library(leaflet)
+library(units)
+library(leaflet.extras2)
+library(htmlwidgets)
+library(jsonlite)
+library(htmltools)   # for 
+
+shp_adri <- "Data/shp/box_Adriatico_Polygon.shp"
+polygons_adri <- st_read(shp_adri, quiet = TRUE) %>% 
+  mutate(Site = "Adriatic")
+
+shp_cyprus <- "Data/shp/box_Chipre_Polygon.shp"
+polygons_cyprus <- st_read(shp_cyprus, quiet = TRUE)%>% 
+  mutate(Site = "Cyprus")
+
+shp_lyon <- "Data/shp/box_lyon_Polygon.shp"
+polygons_lyon <- st_read(shp_lyon, quiet = TRUE)%>% 
+  mutate(Site = "Lyon")
+
+polygons <- rbind(polygons_lyon,polygons_cyprus,polygons_adri)
+
+polygons$wiki_url <- c(
+  Adriatic = "https://sigoiry.github.io/GAM_Chla_MedSea/Adriatic.html",
+  Cyprus   = "https://sigoiry.github.io/GAM_Chla_MedSea/Cyprus.html",
+  Lyon     = "https://sigoiry.github.io/GAM_Chla_MedSea/Lyon.html"
+)[polygons$Site]
+
+
+invalid <- !st_is_valid(polygons)
+# Corriger les géométries invalides (en supprimant ou corrigeant les sommets en double)
+polygons[invalid, ] <- st_make_valid(polygons[invalid, ])
+
+# 2) Compute area in km²
+#    a) project to Web Mercator (units in metres)
+polygons_m <- st_transform(polygons, 3857)
+
+#    b) calculate area (gives units m^2), convert to km^2, drop units
+polygons$area_km2 <- set_units(st_area(polygons_m), km^2)
+polygons$area_km2 <- drop_units(polygons$area_km2)
+
+# 3) Transform back to WGS84 for display
+polygons <- st_transform(polygons, 4326)
+# 3) Compute bounding box for initial view
+bb <- st_bbox(polygons)
+
+
+color_pal <- c("goldenrod3","darkred","lightgreen")
+
+
+color_pal <- colorFactor(color_pal, polygons$Site)
+color_vec <- color_pal(polygons$Site)
+
+# Convert to JSON so it can be inlined into JS:
+
+# ─── 4. Grab the vector of site names and colors ───────────────────────────────────────────
+sites_vec  <- as.character(polygons$Site)
+colors_vec <- color_vec
+overall_bb <- st_bbox(polygons)
+
+# ─── 5. Build the leaflet map, add polygons, then attach onRender JS to create a legend ────
+json_data <- toJSON(polygons, dataframe = "rows", auto_unbox = TRUE)
+
+
+json_data <- toJSON(polygons, dataframe = "rows", auto_unbox = TRUE)
+
+
+m <- leaflet(polygons) %>%
+  addProviderTiles(providers$Esri.WorldImagery) %>%
+  fitBounds(
+    lng1 = overall_bb["xmin"][[1]],
+    lat1 = overall_bb["ymin"][[1]],
+    lng2 = overall_bb["xmax"][[1]],
+    lat2 = overall_bb["ymax"][[1]]
+  )
+
+for(i in seq_len(nrow(polygons))) {
+  m <- m %>%
+  addPolygons(
+    data        = polygons[i,],
+    layerId    = polygons$Site[i],
+    color       = colors_vec[i],
+    weight      = 2,
+    fillColor   = colors_vec[i],
+    fillOpacity = 0.5,
+    label       = ~paste0(Site, " : ", round(area_km2, 2), " km²"),
+    labelOptions = labelOptions(
+      direction = "auto",
+      style     = list("font-weight" = "normal", "padding" = "3px 8px"),
+      textsize  = "13px",
+      opacity   = 0.9
+    )
+  )
+  
+}
+
+m %>%
+  leafem::addMouseCoordinates(css = list(
+    "font-size" = "20px",
+    "text-align" = "center",
+    "background-color" = "white",
+    "color" = "rgb(0, 0, 0)"
+  )) %>%
+  addLegend(
+    pal      = color_pal,
+    values   = polygons$Site,     # ← must match the same vector/order used above
+    title    = "Sites",
+    position = "bottomleft"
+  ) %>% onRender(
+  sprintf(
+"function(el, x) {
+   // parse our R data.frame as JS array of objects
+   var data = %s;
+   this.eachLayer(function(layer) {
+     // only consider our markers (they all have layerId set)
+     if(layer.options && layer.options.layerId) {
+       // find matching record by label
+       var rec = data.find(function(d){ return d.Site === layer.options.layerId; });
+       if(rec && rec.wiki_url ) {
+         layer.on('click', function() {
+           window.open(rec.wiki_url, '_blank');
+         });
+       }
+     }
+   });
+}", 
+    json_data
+  )
+)
+
+
+
+```
+
+@fig-map_sites shows the three study sites considered in this work. The first, named Lyon, is located in the Gulf of Lion, between Corsica and Spain. It covers a total area of `r as.character(round(polygons$area_km2[polygons$Site == "Lyon"],0))` km². The *Adriatic* region, situated between Italy and Croatia, covers a similar area of `r as.character(round(polygons$area_km2[polygons$Site == "Adriatic"],0))` km². The third region, *Cyprus*, is the smallest of the three. It is located south of the island of Cyprus and covers an area of `r as.character(round(polygons$area_km2[polygons$Site == "Cyprus"],0))` km².
+
+# Data investigation
+
+```{r overall raw plot}
+#| label: fig-overall_raw
+#| fig-cap: Time Serie of Chla and environmental varibles
+#| echo: false
+#| error: false
+#| message: false
+#| warning: false
+#| fig-height: 10
+
+
+library(plotly)
+
+colscale <- c("Adriatic" = "goldenrod","Lyon" = "darkgreen","Cyprus" = "darkred")
+p <- df %>%
+  # dplyr::filter(Date >= date_min,
+                # Date <= date_max) %>%
+  ggplot(aes(x = Date, y = Value, color = Box))+
+  geom_point(size = 1)+
+  geom_line(linewidth = 0.5)+
+  scale_color_manual(values = colscale)+
+  # geom_smooth(method = "gam")+
+  facet_wrap(~Metric,scales = "free", ncol = 2)+
+  theme_bw()+
+  theme(legend.position = "top")
+
+
+  ggplotly(p)
+
+```
+
+@fig-overall_raw shows the variation of each response variable and of Chlorophyll-a over time, starting on 1 January 1999. *Lyon* is the site where Chlorophyll-a is most variable, with a minimum of `r round(min(df %>% dplyr::filter(Metric == "GeoMean_Chla", Box == "Lyon") %>% pull(Value)),2)` mg m⁻³ and a maximum of `r round(max(df %>% dplyr::filter(Metric == "GeoMean_Chla", Box == "Lyon") %>% pull(Value)),2)` mg m⁻³. On average, *Lyon* has a Chla concentration of `r round(mean(df %>% dplyr::filter(Metric == "GeoMean_Chla", Box == "Lyon") %>% pull(Value), na.rm = TRUE),2)` mg m⁻³, which is higher than those of the two other regions: `r round(mean(df %>% dplyr::filter(Metric == "GeoMean_Chla", Box == "Adriatic") %>% pull(Value), na.rm = TRUE),2)` mg m⁻³ for *Adriatic* and `r round(mean(df %>% dplyr::filter(Metric == "GeoMean_Chla", Box == "Cyprus") %>% pull(Value), na.rm = TRUE),2)` mg m⁻³ for *Cyprus*.
+
+*Lyon* is also the site where the mixed-layer depth (MLD) and nutrients (NO₃, NH₄, and PO₄) show the greatest variability.
+
+Heat flux (HF) and Sea Surface Temperature (SST) vary in the same way regardless of region. The yearly minimum SST in *Cyprus* is the warmest of all three regions, and overall, the yearly maximum SST is also highest in *Cyprus*, although it is quite close to the maxima of the other two regions.
+
+# Colinearity of variable
+
+```{r scatterplot}
+#| label: fig-pairwise_plot1
+#| fig-cap: Pairwise scatter plot of each variable
+#| echo: false
+#| error: false
+#| message: false
+#| warning: false
+#| out-width: "95%"
+
+library(GGally)
+df_wide %>% 
+  dplyr::select(-c(Date,Box,STD_Chla)) %>% 
+ ggpairs() +
+  theme_minimal()+
+  theme(axis.text = element_blank())
+```
+
+Highly correlated covariates were removed to prevent multicollinearity, which would otherwise inflate parameter uncertainty and obscure the individual ecological effects we aim to quantify. As shown in @fig-pairwise_plot1, PO₄ and NO₃ are almost perfectly correlated (R = 0.997). NO₃ is also strongly correlated with NH₄ (R = 0.77), and PO₄ with NH₄ (R = 0.742). Therefore, individual nutrient concentrations were excluded from the analysis. Instead, we included two derived variables:
+
+$$
+NPratio = (NO3+NH4)/PO4
+$$
+
+&
+
+$$
+TotalNutrient = PO4+NO3+NH4
+$$ These aggregated metrics provide more interpretable and independent representations of nutrient availability and stoichiometry (@fig-pairwise_plot2).
+
+```{r scatterplot2}
+#| label: fig-pairwise_plot2
+#| fig-cap: Pairwise scatter plot of each variable after variable selection
+#| echo: false
+#| error: false
+#| message: false
+#| warning: false
+#| out-width: "95%"
+
+library(GGally)
+df_wide %>% 
+  mutate(NPratio = (NO3+NH4)/PO4,
+         TotalNutrient = NO3+NH4+PO4) %>% 
+  dplyr::select(-c(Date,Box,STD_Chla,NO3,NH4,PO4)) %>% 
+  
+ ggpairs() +
+  theme_minimal()+
+  theme(axis.text = element_blank())
+```
+
+As a result of the variable selection process, chlorophyll-a concentration will be modeled as a function of sea surface temperature (SST), sea surface salinity (SSS), mixed layer depth (MLD), heat flux (HF), nutrient stoichiometry (NP ratio), and total nutrient availability (TotalNutrient).
+
+# Model Building
+
+We fitted a Bayesian Generalised Additive Model (GAM) with a Gamma response in brms (Bürkner 2017, 2018, 2021) to explain the geometric-mean chlorophyll-a concentration (GeoMean_Chla) in for each of the 3 sites (one model for each site).
+
+The response (*GeoMean_Chla*) is strictly positive and right-skewed, therefore we adopted a Gamma distribution with a log link (See equation below). Six environmental drivers, likewise available as monthly means, were entered as thin-plate regression splines to allow non-linear effects: sea-surface temperature (*SST*), sea-surface salinity (*SSS*), the nitrogen-to-phosphorus ratio (*NPratio*), summed dissolved nutrients (*TotalNutrient*), mixed-layer depth (*MLD*) and the Heat flux (*HF*). All predictors were centred and scaled prior to modelling. Weak but regularising priors were used: Student-t(3, 0, 2.5) for the intercept, half-Student-t(3, 0, 2.5) for each smooth's standard deviation, and Gamma(0.01, 0.01) for the Gamma shape parameter φ. Posterior inference relied on the NUTS Hamiltonian Monte-Carlo sampler with 4 chains × 10 000 iterations, discarding the first 1 000 iterations of each chain as warm-up. Convergence and sampling quality were verified by inspecting the Gelman--Rubin statistic (Rhat ≤ 1.01 for every parameter) together with bulk and tail effective sample sizes (all \> 5 000), confirming that the posterior was thoroughly explored and free of divergent transitions.
+
+\begin{aligned}
+\mathrm{GeoMean\_Chla}_{i} &\sim 
+      \mathrm{Gamma}\!\bigl(\mu_{i}\,\varphi,\;(1-\mu_{i})\,\varphi\bigr) \\[6pt]
+
+\log \mu_{i} &= \eta_{i} \\[4pt]
+
+\eta_{i} &= 
+      \alpha
+    + f_{1}(\mathrm{SST}_{i})
+    + f_{2}(\mathrm{SSS}_{i})
+    + f_{3}(\mathrm{N{:}P}_{i})
+    + f_{4}(\mathrm{SumNutri}_{i})
+    + f_{5}(\mathrm{MLD}_{i})
+    + f_{6}(\mathrm{HF}_{i}) \\[8pt]
+
+f_{j}(x) &= \sum_{k=1}^{K_{j}} \beta_{jk}\,B_{jk}(x),
+\qquad j = 1,\dots,6 \\[10pt]
+
+\alpha     &\sim t_{3}(0,\,2.5) \\[2pt]
+\beta_{jk} &\sim \mathcal N\!\bigl(0,\,\sigma_{j}^{2}\bigr) \\[2pt]
+\sigma_{j} &\sim t^{+}_{3}(0,\,2.5) \\[2pt]
+\varphi    &\sim \mathrm{Gamma}(0.01,\,0.01)
+\end{aligned}
+
+<!-- ```{r Interaction by boxes} -->
+
+<!-- # Fit a GAM where each smooth is allowed to vary by Box -->
+
+<!-- fit <- brm( -->
+
+<!--   formula = GeoMean_Chla ~  -->
+
+<!--     s(SST, by = Box) + s(SSS, by = Box) + s(PO4, by = Box) + -->
+
+<!--     s(NO3, by = Box) + s(NH4, by = Box) + s(MLD, by = Box) + -->
+
+<!--     s(HF, by = Box) + (1 | Box), -->
+
+<!--   data = df_wide, -->
+
+<!--   family = Gamma(link = "log"), -->
+
+<!--   chains = 4, cores = 15, -->
+
+<!--   iter = 1000, -->
+
+<!--   warmup = 100, -->
+
+<!--   file = "Data/Model/Chla_GAM_all_1000" -->
+
+<!-- ) -->
+
+<!-- summary(fit) -->
+
+<!-- smooths <- conditional_smooths(fit) -->
+
+<!-- lapply(smooths, names) -->
+
+<!-- all_smooths <- map_dfr( -->
+
+<!--   names(smooths), -->
+
+<!--   function(name) { -->
+
+<!--     df <- smooths[[name]] -->
+
+<!--     x_var <- setdiff(names(df), c("estimate__", "se__", "lower__", "upper__", "cond__")) -->
+
+<!--     df <- df %>% rename(x = all_of(x_var)) -->
+
+<!--     df$variable <- name -->
+
+<!--     df -->
+
+<!--   }, -->
+
+<!--   .id = "id" -->
+
+<!-- ) -->
+
+<!-- smooths_by_var <- split(all_smooths, all_smooths$variable) -->
+
+<!-- # Create a plot for each variable -->
+
+<!-- plots <- lapply(names(smooths_by_var), function(varname) { -->
+
+<!--   df <- smooths_by_var[[varname]] -->
+
+<!--   ggplot(df, aes(x = x1, y = estimate__)) + -->
+
+<!--     geom_line() + -->
+
+<!--     geom_ribbon(aes(ymin = lower__, ymax = upper__), alpha = 0.2) + -->
+
+<!--     facet_wrap(~ cond__, scales = "free_x") + -->
+
+<!--     labs( -->
+
+<!--       title = paste("Effect of", varname, "on Chla"), -->
+
+<!--       x = varname, -->
+
+<!--       y = "Estimated Effect on Chla" -->
+
+<!--     )+ -->
+
+<!--     theme_Bede() -->
+
+<!-- }) -->
+
+<!-- for (p in plots) print(p) -->
+
+<!-- ``` -->
+
+<!-- ```{r Interaction by boxes STD} -->
+
+<!-- df_wide_std <- df_wide %>% -->
+
+<!--   mutate(across(c(SST, SSS, PO4, NO3, NH4, MLD, HF),  -->
+
+<!--                 ~ scale(.)[, 1],  -->
+
+<!--                 .names = "{.col}_z")) -->
+
+<!-- fit <- brm( -->
+
+<!--   formula = GeoMean_Chla ~  -->
+
+<!--     s(SST_z, by = Box) + s(SSS_z, by = Box) + s(PO4_z, by = Box) + -->
+
+<!--     s(NO3_z, by = Box) + s(NH4_z, by = Box) + s(MLD_z, by = Box) + -->
+
+<!--     s(HF_z, by = Box) + (1 | Box), -->
+
+<!--   data = df_wide_std, -->
+
+<!--   family = Gamma(link = "log"), -->
+
+<!--   chains = 4, cores = 15, -->
+
+<!--   iter = 10000, -->
+
+<!--   warmup = 1000, -->
+
+<!--   file = "Data/Model/Chla_GAM_all_STD_10000" -->
+
+<!-- ) -->
+
+<!-- summary(fit) -->
+
+<!-- plot(fit) -->
+
+<!-- # Extract conditional smooths -->
+
+<!-- smooths <- conditional_smooths(fit) -->
+
+<!-- # Retrieve scaling parameters for inverse transform -->
+
+<!-- scaling_info <- df_wide %>% -->
+
+<!--   summarize(across(c(SST, SSS, PO4, NO3, NH4, MLD, HF), -->
+
+<!--                    list(mean = mean, sd = sd), na.rm = TRUE)) -->
+
+<!-- #  Convert smooths back to native x-axis scale -->
+
+<!-- all_smooths <- map_dfr( -->
+
+<!--   names(smooths), -->
+
+<!--   function(name) { -->
+
+<!--     df <- smooths[[name]] -->
+
+<!--     x_var <- setdiff(names(df), c("estimate__", "se__", "lower__", "upper__", "cond__")) -->
+
+<!--     df <- df %>% rename(x = all_of(x_var)) -->
+
+<!--     df$variable <- name -->
+
+<!--     df -->
+
+<!--   }, -->
+
+<!--   .id = "id" -->
+
+<!-- ) -->
+
+<!-- all_smooths_native <- all_smooths %>% -->
+
+<!--   mutate(raw_x = dplyr::case_when( -->
+
+<!--     variable == "mu: s(SST_z,by=Box)" ~ x1 * as.numeric(scaling_info$SST_sd) + as.numeric(scaling_info$SST_mean), -->
+
+<!--     variable == "mu:s(SSS_z,by=Box)" ~ x1 * as.numeric(scaling_info$SSS_sd) + as.numeric(scaling_info$SSS_mean), -->
+
+<!--     variable == "mu:s(PO4_z,by=Box)" ~ x1 * as.numeric(scaling_info$PO4_sd) + as.numeric(scaling_info$PO4_mean), -->
+
+<!--     variable == "mu:s(NO3_z,by=Box)" ~ x1 * as.numeric(scaling_info$NO3_sd) + as.numeric(scaling_info$NO3_mean), -->
+
+<!--     variable == "mu:s(NH4_z,by=Box)" ~ x1 * as.numeric(scaling_info$NH4_sd) + as.numeric(scaling_info$NH4_mean), -->
+
+<!--     variable == "mu:s(MLD_z,by=Box)" ~ x1 * as.numeric(scaling_info$MLD_sd) + as.numeric(scaling_info$MLD_mean), -->
+
+<!--     variable == "mu:s(HF_z,by=Box)"  ~ x1 * as.numeric(scaling_info$HF_sd)  + as.numeric(scaling_info$HF_mean), -->
+
+<!--     TRUE ~ NA_real_ -->
+
+<!--   )) -->
+
+<!-- # Split and plot -->
+
+<!-- smooths_by_var_native <- split(all_smooths_native, all_smooths_native$variable) %>%  -->
+
+<!--   as_tibble() -->
+
+<!-- plots <- lapply(names(smooths_by_var_native), function(varname) { -->
+
+<!--   df <- smooths_by_var_native[[varname]] -->
+
+<!--   ggplot(df, aes(x = raw_x, y = estimate__)) + -->
+
+<!--     geom_line() + -->
+
+<!--     geom_ribbon(aes(ymin = lower__, ymax = upper__), alpha = 0.2) + -->
+
+<!--     facet_wrap(~ cond__, scales = "free_x") + -->
+
+<!--     labs( -->
+
+<!--       title = paste("Effect of", varname, "on Chla"), -->
+
+<!--       x = varname, -->
+
+<!--       y = "Estimated Effect on Chla" -->
+
+<!--     ) + -->
+
+<!--     theme_minimal() -->
+
+<!-- }) -->
+
+<!-- # Display all plots -->
+
+<!-- for (p in plots) print(p) -->
+
+<!-- ``` -->
+
+<!-- ```{r Pred all} -->
+
+<!-- preds_all <- fitted( -->
+
+<!--   fit, -->
+
+<!--   newdata    = df_wide, -->
+
+<!--   re_formula = NULL,    # include Box intercept -->
+
+<!--   probs      = c(0.025, 0.975) -->
+
+<!-- ) -->
+
+<!-- plotdat_all <- bind_cols(df_wide, as_tibble(preds_all)) -->
+
+<!-- # 3c. Plot: obs ± SE, plus GAM fit ±95% ribbon, faceted by Box -->
+
+<!-- ggplot() + -->
+
+<!--   geom_errorbar( -->
+
+<!--     data = df_wide, -->
+
+<!--     aes(x = Date, -->
+
+<!--         ymin = GeoMean_Chla - SE_Chla, -->
+
+<!--         ymax = GeoMean_Chla + SE_Chla), -->
+
+<!--     width = 0.1, alpha = 0.4 -->
+
+<!--   ) + -->
+
+<!--   geom_point( -->
+
+<!--     data = df_wide, -->
+
+<!--     aes(x = Date, y = GeoMean_Chla), -->
+
+<!--     size = 1, alpha = 0.6 -->
+
+<!--   ) + -->
+
+<!--   geom_line( -->
+
+<!--     data = plotdat_all, -->
+
+<!--     aes(x = Date, y = Estimate), -->
+
+<!--     size = 1 -->
+
+<!--   ) + -->
+
+<!--   geom_ribbon( -->
+
+<!--     data = plotdat_all, -->
+
+<!--     aes(x = Date, ymin = Q2.5, ymax = Q97.5), -->
+
+<!--     alpha = 0.2 -->
+
+<!--   ) + -->
+
+<!--   facet_wrap(~ Box, scale = "free") + -->
+
+<!--   labs( -->
+
+<!--     x = "Date", -->
+
+<!--     y = "Chlorophyll-a (GeoMean)", -->
+
+<!--     title = "Bayesian GAM: Chla ~ Date by Box", -->
+
+<!--     subtitle = "Points ± SE = obs; line + ribbon = posterior mean ±95% CI" -->
+
+<!--   ) + -->
+
+<!--   theme_minimal() -->
+
+<!-- ``` -->
+
+<!-- ```{r model Adriatic} -->
+
+<!-- library(tidybayes) -->
+
+<!-- df_wide_adriatic <- df_wide %>%  -->
+
+<!--   dplyr::filter(Box == "Adriatic") -->
+
+<!-- df_wide_adriatic_STD <- df_wide_adriatic %>%  -->
+
+<!--   mutate(across(c(SST, SSS, PO4, NO3, NH4, MLD, HF), -->
+
+<!--                 ~ ( .x - mean(.x, na.rm = TRUE) ) / sd(.x, na.rm = TRUE ))) -->
+
+<!-- fit_adriatic <- brm( -->
+
+<!--   formula = GeoMean_Chla ~  -->
+
+<!--     s(SST) + s(SSS) + s(PO4) + -->
+
+<!--     s(NO3) + s(NH4) + s(MLD) + -->
+
+<!--     s(HF), -->
+
+<!--   data = df_wide_adriatic_STD, -->
+
+<!--   family = Gamma(link = "log"), -->
+
+<!--   chains = 4, cores = 15, -->
+
+<!--   iter = 1000, -->
+
+<!--   warmup = 100, -->
+
+<!--   control = list(adapt_delta = 0.97,  max_treedepth = 15), -->
+
+<!--   file = "Data/Model/Chla_GAM_all_1000_adriatic_log_adapt_delta_97_tree_15_STD" -->
+
+<!-- ) -->
+
+<!-- # plot(fit_adriatic) -->
+
+<!-- summary(fit_adriatic) -->
+
+<!-- plot(conditional_smooths(fit_adriatic), ask = FALSE) -->
+
+<!-- ``` -->
+
+<!-- ```{r model Cyprus} -->
+
+<!-- df_wide_Cyprus <- df_wide %>%  -->
+
+<!--   dplyr::filter(Box == "Cyprus") -->
+
+<!-- df_wide_Cyprus_STD <- df_wide_Cyprus %>%  -->
+
+<!--   mutate(across(c(SST, SSS, PO4, NO3, NH4, MLD, HF), -->
+
+<!--                 ~ ( .x - mean(.x, na.rm = TRUE) ) / sd(.x, na.rm = TRUE ))) -->
+
+<!-- fit_Cyprus <- brm( -->
+
+<!--   formula = GeoMean_Chla ~  -->
+
+<!--     s(SST) + s(SSS) + s(PO4) + -->
+
+<!--     s(NO3) + s(NH4) + s(MLD) + -->
+
+<!--     s(HF), -->
+
+<!--   data = df_wide_Cyprus_STD, -->
+
+<!--   family = Gamma(link = "log"), -->
+
+<!--   chains = 4, cores = 15, -->
+
+<!--   iter = 1000, -->
+
+<!--   warmup = 100, -->
+
+<!--   control = list(adapt_delta = 0.97,  max_treedepth = 15), -->
+
+<!--   file = "Data/Model/Chla_GAM_all_1000_Cyprus_log_adapt_delta_97_tree_15_STD" -->
+
+<!-- ) -->
+
+<!-- # plot(fit_adriatic) -->
+
+<!-- summary(fit_Cyprus) -->
+
+<!-- plot(conditional_smooths(fit_adriatic), ask = FALSE) -->
+
+<!-- ``` -->
+
+<!-- ```{r model Lyon} -->
+
+<!-- df_wide_Lyon <- df_wide %>%  -->
+
+<!--   dplyr::filter(Box == "Lyon") -->
+
+<!-- df_wide_Lyon_STD <- df_wide_Lyon %>%  -->
+
+<!--   mutate(across(c(SST, SSS, PO4, NO3, NH4, MLD, HF), -->
+
+<!--                 ~ ( .x - mean(.x, na.rm = TRUE) ) / sd(.x, na.rm = TRUE ))) -->
+
+<!-- pairs(df_wide_Lyon_STD %>% dplyr::select(-Box)) -->
+
+<!-- fit_Lyon <- brm( -->
+
+<!--   formula = GeoMean_Chla ~  -->
+
+<!--     s(SST) + s(SSS) + s(PO4) + -->
+
+<!--     s(NO3) + s(NH4) + s(MLD) + -->
+
+<!--     s(HF), -->
+
+<!--   data = df_wide_Lyon_STD, -->
+
+<!--   family = Gamma(link = "log"), -->
+
+<!--   chains = 4, cores = 15, -->
+
+<!--   iter = 10000, -->
+
+<!--   warmup = 1000, -->
+
+<!--   control = list(adapt_delta = 0.97,  max_treedepth = 15), -->
+
+<!--   file = "Data/Model/Chla_GAM_all_10000_Lyon_log_adapt_delta_97_tree_15_STD" -->
+
+<!-- ) -->
+
+<!-- # plot(fit_adriatic) -->
+
+<!-- summary(fit_Lyon) -->
+
+<!-- plot(conditional_smooths(fit_adriatic), ask = FALSE) -->
+
+<!-- ``` -->
+
+<!-- ```{r model Lyon Cleaned} -->
+
+<!-- df_wide_Lyon <- df_wide %>%  -->
+
+<!--   dplyr::filter(Box == "Lyon") %>%  -->
+
+<!--   mutate( -->
+
+<!--     DIN  = NO3 + NH4,                     -->
+
+<!--     N_P  = DIN / PO4,                     -->
+
+<!--     # log_N_P = log1p(N_P), -->
+
+<!--     sum_Nutri = NO3 + NH4 + PO4 -->
+
+<!--   ) %>%  -->
+
+<!--   dplyr::select(-c(PO4,NO3,NH4,DIN)) -->
+
+<!-- df_wide_Lyon_STD <- df_wide_Lyon %>%  -->
+
+<!--   mutate(across(c(SST, SSS, N_P, sum_Nutri, MLD, HF), -->
+
+<!--                 ~ ( .x - mean(.x, na.rm = TRUE) ) / sd(.x, na.rm = TRUE ))) -->
+
+<!-- pairs(df_wide_Lyon_STD %>% dplyr::select(-Box)) -->
+
+<!-- fit_Lyon <- brm( -->
+
+<!--   formula = GeoMean_Chla ~  -->
+
+<!--     s(SST) + s(SSS) + s(N_P) + -->
+
+<!--     s(sum_Nutri) + s(MLD) + -->
+
+<!--     s(HF), -->
+
+<!--   data = df_wide_Lyon_STD, -->
+
+<!--   family = Gamma(link = "log"), -->
+
+<!--   chains = 4, cores = 15, -->
+
+<!--   iter = 10000, -->
+
+<!--   warmup = 1000, -->
+
+<!--   control = list(adapt_delta = 0.97,  max_treedepth = 15), -->
+
+<!--   file = "Data/Model/Chla_GAM_all_10000_Lyon_log_adapt_delta_97_tree_15_Cleaned_STD" -->
+
+<!-- ) -->
+
+<!-- # plot(fit_adriatic) -->
+
+<!-- summary(fit_Lyon) -->
+
+<!-- ce_sst <- conditional_effects( -->
+
+<!--   fit_Lyon, -->
+
+<!--   effects = "SST",      # any main effect; interactions like "SST:MLD" -->
+
+<!--   prob    = 0.80        # 80 % ribbon (default is 95 %) -->
+
+<!--   # re_formula = NA     # <- exclude random effects; set to NULL to include -->
+
+<!-- ) -->
+
+<!-- # conditional_effects(fit_Lyon, effects = "SST:MLD", surface = TRUE) -->
+
+<!-- # plot(ce_sst, points = TRUE, rug = TRUE, ask = FALSE) -->
+
+<!-- # plot(conditional_smooths(fit_adriatic), ask = FALSE) -->
+
+<!-- ``` -->
+
+<!-- ```{r model Adriatic Cleaned} -->
+
+<!-- df_wide_Adriatic <- df_wide %>%  -->
+
+<!--   dplyr::filter(Box == "Adriatic") %>%  -->
+
+<!--   mutate( -->
+
+<!--     DIN  = NO3 + NH4,                     -->
+
+<!--     N_P  = DIN / PO4,                     -->
+
+<!--     # log_N_P = log1p(N_P), -->
+
+<!--     sum_Nutri = NO3 + NH4 + PO4 -->
+
+<!--   ) %>%  -->
+
+<!--   dplyr::select(-c(PO4,NO3,NH4,DIN)) -->
+
+<!-- df_wide_Adriatic_STD <- df_wide_Adriatic %>%  -->
+
+<!--   mutate(across(c(SST, SSS, N_P, sum_Nutri, MLD, HF), -->
+
+<!--                 ~ ( .x - mean(.x, na.rm = TRUE) ) / sd(.x, na.rm = TRUE ))) -->
+
+<!-- pairs(df_wide_Adriatic_STD %>% dplyr::select(-Box)) -->
+
+<!-- fit_Adriatic <- brm( -->
+
+<!--   formula = GeoMean_Chla ~  -->
+
+<!--     s(SST) + s(SSS) + s(N_P) + -->
+
+<!--     s(sum_Nutri) + s(MLD) + -->
+
+<!--     s(HF), -->
+
+<!--   data = df_wide_Adriatic_STD, -->
+
+<!--   family = Gamma(link = "log"), -->
+
+<!--   chains = 4, cores = 15, -->
+
+<!--   iter = 10000, -->
+
+<!--   warmup = 1000, -->
+
+<!--   control = list(adapt_delta = 0.97,  max_treedepth = 15), -->
+
+<!--   file = "Data/Model/Chla_GAM_all_10000_Adriatic_log_adapt_delta_97_tree_15_Cleaned_STD" -->
+
+<!-- ) -->
+
+<!-- # plot(fit_adriatic) -->
+
+<!-- summary(fit_Adriatic) -->
+
+<!-- # plot(conditional_smooths(fit_adriatic), ask = FALSE) -->
+
+<!-- ``` -->
+
+<!-- ```{r model Cyprus Cleaned} -->
+
+<!-- df_wide_Cyprus <- df_wide %>%  -->
+
+<!--   dplyr::filter(Box == "Cyprus") %>%  -->
+
+<!--   mutate( -->
+
+<!--     DIN  = NO3 + NH4,                     -->
+
+<!--     N_P  = DIN / PO4,                     -->
+
+<!--     log_N_P = log1p(N_P), -->
+
+<!--     sum_Nutri = NO3 + NH4 + PO4 -->
+
+<!--   ) %>%  -->
+
+<!--   dplyr::select(-c(PO4,NO3,NH4,log_N_P,DIN)) -->
+
+<!-- df_wide_Cyprus_STD <- df_wide_Cyprus %>%  -->
+
+<!--   mutate(across(c(SST, SSS, N_P, sum_Nutri, MLD, HF), -->
+
+<!--                 ~ ( .x - mean(.x, na.rm = TRUE) ) / sd(.x, na.rm = TRUE ))) -->
+
+<!-- pairs(df_wide_Cyprus_STD %>% dplyr::select(-Box)) -->
+
+<!-- fit_Cyprus <- brm( -->
+
+<!--   formula = GeoMean_Chla ~  -->
+
+<!--     s(SST) + s(SSS) + s(N_P) + -->
+
+<!--     s(sum_Nutri) + s(MLD) + -->
+
+<!--     s(HF), -->
+
+<!--   data = df_wide_Cyprus_STD, -->
+
+<!--   family = Gamma(link = "log"), -->
+
+<!--   chains = 4, cores = 15, -->
+
+<!--   iter = 10000, -->
+
+<!--   warmup = 1000, -->
+
+<!--   control = list(adapt_delta = 0.97,  max_treedepth = 15), -->
+
+<!--   file = "Data/Model/Chla_GAM_all_10000_Cyprus_log_adapt_delta_97_tree_15_Cleaned_STD" -->
+
+<!-- ) -->
+
+<!-- # plot(fit_Cyprus) -->
+
+<!-- summary(fit_Cyprus) -->
+
+<!-- plot(conditional_smooths(fit_Cyprus), ask = FALSE) -->
+
+<!-- ``` -->

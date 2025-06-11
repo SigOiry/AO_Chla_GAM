@@ -1,0 +1,26 @@
+project:
+  type: website
+  output-dir: "docs"
+
+website:
+  title: "Chla Variability of the Med Sea"
+  navbar:
+    left:
+      - href: index.qmd
+        text: Home
+      - href: Lyon.qmd
+        text: Gulf of Lyon
+      - href: Cyprus.qmd
+        text: Cyprus
+      - href: Adriatic.qmd
+        text: Adriatic Sea
+format:
+  html:
+    theme:
+      - sandstone
+    css: styles.css
+    toc: true
+
+editor: source
+
+
