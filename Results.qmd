@@ -1,0 +1,452 @@
+---
+title: "Results of the modeling"
+format:
+  html:
+    page-layout: full   
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r Open Chlorophyll}
+#| cache: false
+#| echo: false
+#| warning: false
+#| eval: false
+
+library(brms)
+library(tidyverse)
+library(Utilities.Package)
+
+# Read in
+df_chla <- read.csv("Data/data_AO_for_GAMs_env_factors_chl_geomean.csv") %>% 
+  mutate(Region = as.factor(Region)) %>% 
+  dplyr::filter(!is.nan(Chl)) %>% 
+  rename(IceCover = "Ice",
+         WindSpeed = "Wind") %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  group_by(Metric, Region) %>% 
+  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))))%>% 
+  ungroup() %>% 
+  pivot_wider(values_from = Value, names_from = Metric)
+
+
+
+df_back_to_raw <- df_chla %>% 
+  pivot_longer(-c(Date, Region), values_to = "values", names_to = "metrics") %>% 
+  group_by(metrics, Region) %>% 
+  reframe(avg = mean(values, na.rm = T),
+          sd = sd(values, na.rm=T))
+
+df_chla_STD <- read.csv("Data/data_AO_for_GAMs_env_factors_chl_geomean.csv") %>% 
+  mutate(Region = as.factor(Region)) %>% 
+  dplyr::filter(!is.nan(Chl)) %>% 
+  rename(IceCover = "Ice",
+         WindSpeed = "Wind") %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  group_by(Metric, Region) %>% 
+  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))))%>% 
+  ungroup() %>% 
+  pivot_wider(values_from = Value, names_from = Metric) %>%
+  group_by(Region) %>% 
+  mutate(across(c(Chl, SST, IceCover, WindSpeed),
+                ~ ( .x - mean(.x, na.rm = TRUE) ) / sd(.x, na.rm = TRUE )))
+
+fit <- brm(
+  formula = Chl ~ 
+    s(SST, by = Region) +
+    s(IceCover, by = Region) + 
+    s(WindSpeed, by = Region),
+  data = df_chla_STD,
+  family =  student(),
+  chains = 4, cores = 15,
+  iter = 5000,
+  warmup = 500,
+  control = list(adapt_delta = 0.95),
+  file = "chla_gam_by_region_all_STD_Student_identity"
+)
+
+# summary(fit)
+# plot(fit)
+
+# 
+# ce_sst <- conditional_effects(fit, effects = "SST:Region", prob = 0.8)
+# 
+# RAW_SST <- df_back_to_raw %>% 
+#   dplyr::filter(metrics == "SST")
+# RAW_Chl <- df_back_to_raw %>% 
+#   dplyr::filter(metrics == "Chl")
+# 
+# data_sst <- ce_sst[[1]] %>% 
+#   as_tibble() %>% 
+#   left_join(RAW_SST, by = "Region") %>% 
+#   mutate(SST = (SST*sd)+avg) %>% 
+#   dplyr::select(-c(avg,sd)) %>% 
+#   left_join(RAW_Chl, by = "Region")%>% 
+#   mutate(estimate__ = (estimate__*sd)+avg,
+#          lower__ = (lower__*sd)+avg,
+#          upper__ = (upper__*sd)+avg) %>% 
+#   dplyr::select(-c(avg,sd))
+#   
+# ce_sst[[1]]%>% 
+#   ggplot(aes(x = SST, y = estimate__))+
+#   geom_ribbon(aes(ymin = lower__, ymax = upper__), color = NA, fill = "darkred", alpha = 0.1)+
+#   geom_line(color= "darkred")+
+#   # coord_cartesian(ylim = c(0, 10))+
+#   facet_wrap(~Region, scales = "free")+
+# labs(y = "Chla (mg.m⁻³)",x="SST (°C)")+
+#   theme_Bede()
+# 
+# ce_ice <- conditional_effects(fit, effects = "IceCover:Region")
+# 
+# ce_ice[[1]]%>% 
+#   ggplot(aes(x = IceCover, y = estimate__))+
+#   geom_ribbon(aes(ymin = lower__, ymax = upper__), color = NA, fill = "darkblue", alpha = 0.1)+
+#   geom_line(color= "darkblue")+
+#   coord_cartesian(ylim = c(0, 10))+
+#   facet_wrap(~Region, scales = "free")+
+#   labs(y = "Chla (mg.m⁻³)",x="Sea Ice Cover")+
+#   theme_Bede()
+# 
+# 
+# 
+# 
+# ce_wind <- conditional_effects(fit, effects = "WindSpeed:Region")
+# 
+# ce_wind[[1]]%>% 
+#   ggplot(aes(x = WindSpeed, y = estimate__))+
+#   geom_ribbon(aes(ymin = lower__, ymax = upper__), color = NA, fill = "darkgreen", alpha = 0.1)+
+#   geom_line(color= "darkgreen")+
+#   # coord_cartesian(ylim = c(0, 10)) +
+#   facet_wrap(~Region, scales = "free")+
+#   labs(y = "Chla (mg.m⁻³)",x="WindSpeed 'm.s-1")+
+#   theme_Bede()
+# f
+```
+
+```{r conditional fit}
+#| cache: false
+#| echo: false
+#| warning: false
+#| eval: false
+
+library(tidyverse)
+library(brms)
+library(patchwork)
+
+# Read in
+df_chla <- read.csv("Data/data_AO_for_GAMs_env_factors_chl_geomean.csv") %>% 
+  mutate(Region = as.factor(Region)) %>% 
+  dplyr::filter(!is.nan(Chl)) %>% 
+  rename(IceCover = "Ice",
+         WindSpeed = "Wind") %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  group_by(Metric, Region) %>% 
+  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))))%>% 
+  ungroup() %>% 
+  pivot_wider(values_from = Value, names_from = Metric)
+
+
+
+df_back_to_raw <- df_chla %>% 
+  pivot_longer(-c(Date, Region), values_to = "values", names_to = "metrics") %>% 
+  group_by(metrics, Region) %>% 
+  reframe(avg = mean(values, na.rm = T),
+          sd = sd(values, na.rm=T))
+
+df_back_to_raw_chla <- df_back_to_raw %>% dplyr::filter(metrics == "Chl")
+
+df_chla_STD <- read.csv("Data/data_AO_for_GAMs_env_factors_chl_geomean.csv") %>% 
+  mutate(Region = as.factor(Region)) %>% 
+  dplyr::filter(!is.nan(Chl)) %>% 
+  rename(IceCover = "Ice",
+         WindSpeed = "Wind") %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  group_by(Metric, Region) %>% 
+  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))))%>% 
+  ungroup() %>% 
+  pivot_wider(values_from = Value, names_from = Metric) %>%
+  group_by(Region) %>% 
+  mutate(across(c(Chl, SST, IceCover, WindSpeed),
+                ~ ( .x - mean(.x, na.rm = TRUE) ) / sd(.x, na.rm = TRUE )))
+
+# Function to create newdata for marginal effect of one variable per region
+make_newdata <- function(region, variable_name, model_data, n_points = 100) {
+  # Filter data to get range of the target variable within that region
+  data_region <- model_data %>% filter(Region == region)
+
+  # Get means of all variables
+  means <- data_region %>%
+    select(SST, IceCover, WindSpeed) %>%
+    summarise(across(everything(), mean, na.rm = TRUE))
+
+  # Sequence for the variable to test
+  test_seq <- seq(min(data_region[[variable_name]], na.rm = TRUE),
+                  max(data_region[[variable_name]], na.rm = TRUE),
+                  length.out = n_points)
+
+  # Create newdata where all vars = mean, except the test var
+  newdata <- tibble(
+    SST =rep(means$SST,100),
+    IceCover = means$IceCover,
+    WindSpeed = means$WindSpeed
+  )
+  newdata[[variable_name]] <- test_seq
+  newdata$Region <- region
+
+  return(newdata)
+}
+
+# Loop over variables and regions, get fitted values
+variables <- c("SST", "IceCover", "WindSpeed")
+all_preds <- list()
+regions <- unique(df_chla_STD$Region)
+
+for (var in variables) {
+  for (reg in regions) {
+    nd <- make_newdata(reg, var, df_chla_STD)
+    preds <- fitted(fit, newdata = nd, re_formula = NA, summary = TRUE) %>%
+      as_tibble() %>%
+      bind_cols(nd) %>%
+      mutate(Variable = var, Box = reg)
+    all_preds[[paste(reg, var, sep = "_")]] <- preds
+  }
+}
+
+
+
+
+
+# Combine all into one dataframe
+df_all_preds <- bind_rows(all_preds)
+
+
+colpal <- c("Baffin Bay" = "#326CBE",
+            "Barents Sea" = "#C2E5B4",
+            "Basin" = "#1F408D",
+            "Beaufort Sea"= "#808064",
+            "Canadian Archipelago"= "#199A98",
+            "Chukchi Sea"= "#538CB2",
+            "East Siberian Sea"= "#38B423",
+            "Kara Sea" = "#98BF39",
+            "Laptev Sea" = "#A7C6EB",
+            "Nordic Sea" = "#4D3374")
+
+##### WindSpeed #####
+df_WindSpeed_Manual <- df_all_preds %>% filter(Variable == "WindSpeed") %>% 
+  dplyr::select(-c(Variable,Box)) %>% 
+  pivot_longer(-c(Region,Estimate,Est.Error, Q2.5, Q97.5), names_to = "metrics", values_to = "values")%>% 
+  left_join(df_back_to_raw, by = c("Region","metrics")) %>% 
+  mutate(values = values*sd+avg) %>% 
+  dplyr::select(-c(avg,sd)) %>% 
+  pivot_wider(names_from = "metrics",values_from = "values") %>% 
+  left_join(df_back_to_raw_chla, by = "Region") %>% 
+  mutate(Estimate = Estimate*sd+avg,
+         Q2.5 = Q2.5*sd+avg,
+         Q97.5 = Q97.5*sd+avg) %>% 
+  dplyr::select(-c(SST,IceCover,avg,sd))
+
+df_WindSpeed_Relatif <- df_all_preds %>% filter(Variable == "WindSpeed") %>% 
+  dplyr::select(-c(Variable,Box)) %>% 
+  pivot_longer(-c(Region,Estimate,Est.Error, Q2.5, Q97.5), names_to = "metrics", values_to = "values")%>% 
+  left_join(df_back_to_raw, by = c("Region","metrics")) %>% 
+  mutate(values = values*sd+avg) %>% 
+  dplyr::select(-c(avg,sd)) %>% 
+  pivot_wider(names_from = "metrics",values_from = "values") %>% 
+  left_join(df_back_to_raw_chla, by = "Region") %>% 
+  mutate(Estimate = Estimate*sd+avg,
+         Q2.5 = Q2.5*sd+avg,
+         Q97.5 = Q97.5*sd+avg) %>% 
+  dplyr::select(-c(SST,IceCover,avg,sd))%>% 
+  group_by(Region) %>% 
+  mutate(Q2.5 = Q2.5 /mean(Estimate),
+         Q97.5 = Q97.5 /mean(Estimate),
+         Estimate = Estimate /mean(Estimate),
+         WindSpeed =WindSpeed/mean(WindSpeed))
+
+p1 <- df_WindSpeed_Manual %>% 
+  ggplot(aes(x = WindSpeed, y = Estimate, ymin = Q2.5, ymax = Q97.5, color = Region, fill = Region)) +
+  geom_line() +
+  scale_color_manual(values = colpal)+
+  scale_fill_manual(values = colpal)+
+  facet_wrap(~Region)+
+  geom_ribbon(alpha = 0.2, color = NA) +
+  labs(title = "Marginal effect of WindSpeed on Chla in raw scales", y = "Chla (mg/m³)", x = "WindSpeed") +
+  theme_minimal()
+
+p2 <- df_WindSpeed_Relatif %>% 
+  ggplot(aes(x = WindSpeed, y = Estimate, ymin = Q2.5, ymax = Q97.5, color = Region, fill = Region)) +
+  geom_line() +
+  scale_color_manual(values = colpal)+
+  scale_fill_manual(values = colpal)+
+  facet_wrap(~Region)+
+  geom_ribbon(alpha = 0.2, color = NA) +
+  labs(title = "Marginal effect of WindSpeed on Chla in relative scales", y = "Chla (mg/m³)", x = "WindSpeed") +
+  theme_minimal()
+
+
+##### SST #####
+df_SST_Manual <- df_all_preds %>% filter(Variable == "SST") %>% 
+  dplyr::select(-c(Variable,Box)) %>% 
+  pivot_longer(-c(Region,Estimate,Est.Error, Q2.5, Q97.5), names_to = "metrics", values_to = "values")%>% 
+  left_join(df_back_to_raw, by = c("Region","metrics")) %>% 
+  mutate(values = values*sd+avg) %>% 
+  dplyr::select(-c(avg,sd)) %>% 
+  pivot_wider(names_from = "metrics",values_from = "values") %>% 
+  left_join(df_back_to_raw_chla, by = "Region") %>% 
+  mutate(Estimate = Estimate*sd+avg,
+         Q2.5 = Q2.5*sd+avg,
+         Q97.5 = Q97.5*sd+avg)%>% 
+  dplyr::select(-c(WindSpeed,IceCover,avg,sd))
+
+df_SST_Relatif <- df_all_preds %>% filter(Variable == "SST") %>% 
+  dplyr::select(-c(Variable,Box)) %>% 
+  pivot_longer(-c(Region,Estimate,Est.Error, Q2.5, Q97.5), names_to = "metrics", values_to = "values")%>% 
+  left_join(df_back_to_raw, by = c("Region","metrics")) %>% 
+  mutate(values = values*sd+avg) %>% 
+  dplyr::select(-c(avg,sd)) %>% 
+  pivot_wider(names_from = "metrics",values_from = "values") %>% 
+  left_join(df_back_to_raw_chla, by = "Region") %>% 
+  mutate(Estimate = Estimate*sd+avg,
+         Q2.5 = Q2.5*sd+avg,
+         Q97.5 = Q97.5*sd+avg) %>% 
+  dplyr::select(-c(WindSpeed,IceCover,avg,sd))%>% 
+  group_by(Region) %>% 
+  mutate(Q2.5 = Q2.5 /mean(Estimate),
+         Q97.5 = Q97.5 /mean(Estimate),
+         Estimate = Estimate /mean(Estimate),
+         SST =SST/mean(SST))
+
+p3 <- df_SST_Manual %>% 
+  ggplot(aes(x = SST, y = Estimate, ymin = Q2.5, ymax = Q97.5, color = Region, fill = Region)) +
+  geom_line() +
+  scale_color_manual(values = colpal)+
+  scale_fill_manual(values = colpal)+
+  facet_wrap(~Region)+
+  geom_ribbon(alpha = 0.2, color = NA) +
+  labs(title = "Marginal effect of SST on Chla in raw scales", y = "Chla (mg/m³)", x = "SST") +
+  theme_minimal()
+
+p4 <- df_SST_Relatif %>% 
+  ggplot(aes(x = SST, y = Estimate, ymin = Q2.5, ymax = Q97.5, color = Region, fill = Region)) +
+  geom_line() +
+  scale_color_manual(values = colpal)+
+  scale_fill_manual(values = colpal)+
+  facet_wrap(~Region, scale = "free")+
+  geom_ribbon(alpha = 0.2, color = NA) +
+  labs(title = "Marginal effect of SST on Chla in relative scales", y = "Chla (mg/m³)", x = "SST") +
+  theme_minimal()
+
+
+##### IceCover #####
+df_IceCover_Manual <- df_all_preds %>% filter(Variable == "IceCover") %>% 
+  dplyr::select(-c(Variable,Box)) %>% 
+  pivot_longer(-c(Region,Estimate,Est.Error, Q2.5, Q97.5), names_to = "metrics", values_to = "values")%>% 
+  left_join(df_back_to_raw, by = c("Region","metrics")) %>% 
+  mutate(values = values*sd+avg) %>% 
+  dplyr::select(-c(avg,sd)) %>% 
+  pivot_wider(names_from = "metrics",values_from = "values") %>% 
+  left_join(df_back_to_raw_chla, by = "Region") %>% 
+  mutate(Estimate = Estimate*sd+avg,
+         Q2.5 = Q2.5*sd+avg,
+         Q97.5 = Q97.5*sd+avg) %>% 
+  dplyr::select(-c(WindSpeed,SST,avg,sd))
+
+
+df_IceCover_Relatif <- df_all_preds %>% filter(Variable == "IceCover") %>% 
+  dplyr::select(-c(Variable,Box)) %>% 
+  pivot_longer(-c(Region,Estimate,Est.Error, Q2.5, Q97.5), names_to = "metrics", values_to = "values")%>% 
+  left_join(df_back_to_raw, by = c("Region","metrics")) %>% 
+  mutate(values = values*sd+avg) %>% 
+  dplyr::select(-c(avg,sd)) %>% 
+  pivot_wider(names_from = "metrics",values_from = "values") %>% 
+  left_join(df_back_to_raw_chla, by = "Region") %>% 
+  mutate(Estimate = Estimate*sd+avg,
+         Q2.5 = Q2.5*sd+avg,
+         Q97.5 = Q97.5*sd+avg)  %>% 
+  dplyr::select(-c(WindSpeed,SST,avg,sd))%>% 
+  group_by(Region) %>% 
+  mutate(Q2.5 = Q2.5 /mean(Estimate),
+         Q97.5 = Q97.5 /mean(Estimate),
+         Estimate = Estimate /mean(Estimate),
+         IceCover =IceCover/mean(IceCover))
+
+
+
+p5 <- df_IceCover_Manual %>% 
+  ggplot(aes(x = IceCover, y = Estimate, ymin = Q2.5, ymax = Q97.5, color = Region, fill = Region)) +
+  geom_line() +
+  scale_color_manual(values = colpal)+
+  scale_fill_manual(values = colpal)+
+  facet_wrap(~Region)+
+  geom_ribbon(alpha = 0.2, color = NA) +
+  labs(title = "Marginal effect of IceCover on Chla in raw scales", y = "Chla (mg/m³)", x = "IceCover") +
+  theme_minimal()
+
+
+p6 <- df_IceCover_Relatif %>% 
+  ggplot(aes(x = IceCover, y = Estimate, ymin = Q2.5, ymax = Q97.5, color = Region, fill = Region)) +
+  geom_line() +
+  scale_color_manual(values = colpal)+
+  scale_fill_manual(values = colpal)+
+  facet_wrap(~Region)+
+  geom_ribbon(alpha = 0.2, color = NA) +
+  labs(title = "Marginal effect of IceCover on Chla in relative scales", y = "Chla (mg/m³)", x = "IceCover") +
+  theme_minimal()
+
+
+plot_WindSpeed_RAW <- p1+
+  plot_layout(guides = "collect") &
+  theme(legend.position = "top")
+
+plot_WindSpeed_Relative <- p2+
+  plot_layout(guides = "collect") &
+  theme(legend.position = "top")
+
+plot_SST_RAW <- p3+
+  plot_layout(guides = "collect") &
+  theme(legend.position = "top")
+
+plot_SST_Relative <- p4+
+  plot_layout(guides = "collect") &
+  theme(legend.position = "top")
+
+plot_IceCover_Raw <- p5+
+  plot_layout(guides = "collect") &
+  theme(legend.position = "top")
+
+plot_IceCover_Relatives <- p6+
+  plot_layout(guides = "collect") &
+  theme(legend.position = "top")
+
+write.csv(df_IceCover_Manual, "Outputs/df_IceCover_RAW.csv", row.names = F)
+write.csv(df_IceCover_Relatif, "Outputs/df_IceCover_Relatif.csv", row.names = F)
+write.csv(df_SST_Manual, "Outputs/df_SST_RAW.csv", row.names = F)
+write.csv(df_SST_Relatif, "Outputs/df_SST_Relatif.csv", row.names = F)
+write.csv(df_WindSpeed_Manual, "Outputs/df_WindSpeed_RAW.csv", row.names = F)
+write.csv(df_WindSpeed_Relatif, "Outputs/df_WindSpeed_Relatif.csv", row.names = F)
+
+write.csv(df_IceCover_Manual, "ShinyApp/Results/df_IceCover_RAW.csv", row.names = F)
+write.csv(df_IceCover_Relatif, "ShinyApp/Results/df_IceCover_Relatif.csv", row.names = F)
+write.csv(df_SST_Manual, "ShinyApp/Results/df_SST_RAW.csv", row.names = F)
+write.csv(df_SST_Relatif, "ShinyApp/Results/df_SST_Relatif.csv", row.names = F)
+write.csv(df_WindSpeed_Manual, "ShinyApp/Results/df_WindSpeed_RAW.csv", row.names = F)
+write.csv(df_WindSpeed_Relatif, "ShinyApp/Results/df_WindSpeed_Relatif.csv", row.names = F)
+```
+
+
+<!-- Inline CSS to wipe out any residual body/container padding -->
+<style>
+  body, .quarto-page, .quarto-container {
+    margin: 0;
+    padding: 0;
+  }
+</style>
+
+<!-- Full-width iframe holding the Shiny app -->
+<iframe
+  src="https://polychaeteapp.shinyapps.io/results/"
+  width="100%"
+  height="900"
+  style="border: none; margin: 0; padding: 0;">
+</iframe>
+

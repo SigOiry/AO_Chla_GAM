@@ -8,12 +8,6 @@ website:
     left:
       - href: index.qmd
         text: Home
-      - href: Lyon.qmd
-        text: Gulf of Lyon
-      - href: Cyprus.qmd
-        text: Cyprus
-      - href: Adriatic.qmd
-        text: Adriatic Sea
 format:
   html:
     theme:

@@ -29,10 +29,66 @@ library(Utilities.Package)
 
 # Read in
 df_chla <- readxl::read_xlsx("Data/Chla_and_Environment.xlsx") %>% 
-  mutate(Date = as.Date(gsub("'","",Date)))
+  mutate(Date = as.Date(gsub("'","",Date)),
+         `CHL (mg m-3)` = as.numeric(`CHL (mg m-3)`), 
+         Region = as.factor(Region)) %>% 
+  dplyr::filter(!is.nan(`CHL (mg m-3)`)) %>% 
+  rename(Chla = "CHL (mg m-3)",
+         SST = "SST (degrees C)",
+         IceCover = "ICE (cover)",
+         WindSpeed = "WINDSPEED (m s-1)") %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  group_by(Metric, Region) %>% 
+  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))))%>% 
+  ungroup() %>% 
+  pivot_wider(values_from = Value, names_from = Metric)
+
+
+df_chla <- read.csv("Data/data_AO_for_GAMs_env_factors_chl_geomean.csv") %>% 
+  mutate(Region = as.factor(Region)) %>% 
+  dplyr::filter(!is.nan(Chl)) %>% 
+  rename(IceCover = "Ice",
+         WindSpeed = "Wind") %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  group_by(Metric, Region) %>% 
+  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))))%>% 
+  ungroup() %>% 
+  pivot_wider(values_from = Value, names_from = Metric)
+
+df_chla_STD <- read.csv("Data/data_AO_for_GAMs_env_factors_chl_geomean.csv") %>% 
+  mutate(Region = as.factor(Region)) %>% 
+  dplyr::filter(!is.nan(Chl)) %>% 
+  rename(IceCover = "Ice",
+         WindSpeed = "Wind") %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  group_by(Metric, Region) %>% 
+  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))))%>% 
+  ungroup() %>% 
+  pivot_wider(values_from = Value, names_from = Metric) %>%
+  group_by(Region) %>% 
+  mutate(across(c(SST, IceCover, WindSpeed),
+                ~ ( .x - mean(.x, na.rm = TRUE) ) / sd(.x, na.rm = TRUE )))
 
 ```
 
+```{r colorscale}
+#| cache: false
+#| echo: false
+#| warning: false
+
+
+colpal <- c("Baffin Bay" = "#326CBE",
+            "Barents Sea" = "#C2E5B4",
+            "Basin" = "#1F408D",
+            "Beaufort Sea"= "#808064",
+            "Canadian Archipelago"= "#199A98",
+            "Chukchi Sea"= "#538CB2",
+            "East Siberian Sea"= "#38B423",
+            "Kara Sea" = "#98BF39",
+            "Laptev Sea" = "#A7C6EB",
+            "Nordic Sea" = "#4D3374")
+
+```
 
 ::: {style="text-align: center; margin-top: 20px;"}
 <button onclick="window.open(&#39;https://github.com/SigOiry/AO_Chla_GAM&#39;, &#39;_blank&#39;);" style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;">
@@ -46,7 +102,7 @@ Visit the Github repository
 
 ```{r leaflet map}
 #| label: fig-map_sites
-#| fig-cap: Map of the 3 regions investigated in this study
+#| fig-cap: Map of the AO regions investigated in this study
 #| echo: false
 #| error: false
 #| message: false
@@ -54,142 +110,8 @@ Visit the Github repository
 #| out-width: "95%"
 
 
-# install.packages(c("sf","leaflet"))  # uncomment to install if needed
-library(sf)
-library(leaflet)
-library(units)
-library(leaflet.extras2)
-library(htmlwidgets)
-library(jsonlite)
-library(htmltools)   # for 
-
-shp_adri <- "Data/shp/box_Adriatico_Polygon.shp"
-polygons_adri <- st_read(shp_adri, quiet = TRUE) %>% 
-  mutate(Site = "Adriatic")
-
-shp_cyprus <- "Data/shp/box_Chipre_Polygon.shp"
-polygons_cyprus <- st_read(shp_cyprus, quiet = TRUE)%>% 
-  mutate(Site = "Cyprus")
-
-shp_lyon <- "Data/shp/box_lyon_Polygon.shp"
-polygons_lyon <- st_read(shp_lyon, quiet = TRUE)%>% 
-  mutate(Site = "Lyon")
-
-polygons <- rbind(polygons_lyon,polygons_cyprus,polygons_adri)
-
-polygons$wiki_url <- c(
-  Adriatic = "https://sigoiry.github.io/GAM_Chla_MedSea/Adriatic.html",
-  Cyprus   = "https://sigoiry.github.io/GAM_Chla_MedSea/Cyprus.html",
-  Lyon     = "https://sigoiry.github.io/GAM_Chla_MedSea/Lyon.html"
-)[polygons$Site]
-
-
-invalid <- !st_is_valid(polygons)
-# Corriger les géométries invalides (en supprimant ou corrigeant les sommets en double)
-polygons[invalid, ] <- st_make_valid(polygons[invalid, ])
-
-# 2) Compute area in km²
-#    a) project to Web Mercator (units in metres)
-polygons_m <- st_transform(polygons, 3857)
-
-#    b) calculate area (gives units m^2), convert to km^2, drop units
-polygons$area_km2 <- set_units(st_area(polygons_m), km^2)
-polygons$area_km2 <- drop_units(polygons$area_km2)
-
-# 3) Transform back to WGS84 for display
-polygons <- st_transform(polygons, 4326)
-# 3) Compute bounding box for initial view
-bb <- st_bbox(polygons)
-
-
-color_pal <- c("goldenrod3","darkred","lightgreen")
-
-
-color_pal <- colorFactor(color_pal, polygons$Site)
-color_vec <- color_pal(polygons$Site)
-
-# Convert to JSON so it can be inlined into JS:
-
-# ─── 4. Grab the vector of site names and colors ───────────────────────────────────────────
-sites_vec  <- as.character(polygons$Site)
-colors_vec <- color_vec
-overall_bb <- st_bbox(polygons)
-
-# ─── 5. Build the leaflet map, add polygons, then attach onRender JS to create a legend ────
-json_data <- toJSON(polygons, dataframe = "rows", auto_unbox = TRUE)
-
-
-json_data <- toJSON(polygons, dataframe = "rows", auto_unbox = TRUE)
-
-
-m <- leaflet(polygons) %>%
-  addProviderTiles(providers$Esri.WorldImagery) %>%
-  fitBounds(
-    lng1 = overall_bb["xmin"][[1]],
-    lat1 = overall_bb["ymin"][[1]],
-    lng2 = overall_bb["xmax"][[1]],
-    lat2 = overall_bb["ymax"][[1]]
-  )
-
-for(i in seq_len(nrow(polygons))) {
-  m <- m %>%
-  addPolygons(
-    data        = polygons[i,],
-    layerId    = polygons$Site[i],
-    color       = colors_vec[i],
-    weight      = 2,
-    fillColor   = colors_vec[i],
-    fillOpacity = 0.5,
-    label       = ~paste0(Site, " : ", round(area_km2, 2), " km²"),
-    labelOptions = labelOptions(
-      direction = "auto",
-      style     = list("font-weight" = "normal", "padding" = "3px 8px"),
-      textsize  = "13px",
-      opacity   = 0.9
-    )
-  )
-  
-}
-
-m %>%
-  leafem::addMouseCoordinates(css = list(
-    "font-size" = "20px",
-    "text-align" = "center",
-    "background-color" = "white",
-    "color" = "rgb(0, 0, 0)"
-  )) %>%
-  addLegend(
-    pal      = color_pal,
-    values   = polygons$Site,     # ← must match the same vector/order used above
-    title    = "Sites",
-    position = "bottomleft"
-  ) %>% onRender(
-  sprintf(
-"function(el, x) {
-   // parse our R data.frame as JS array of objects
-   var data = %s;
-   this.eachLayer(function(layer) {
-     // only consider our markers (they all have layerId set)
-     if(layer.options && layer.options.layerId) {
-       // find matching record by label
-       var rec = data.find(function(d){ return d.Site === layer.options.layerId; });
-       if(rec && rec.wiki_url ) {
-         layer.on('click', function() {
-           window.open(rec.wiki_url, '_blank');
-         });
-       }
-     }
-   });
-}", 
-    json_data
-  )
-)
-
-
-
+knitr::include_graphics("img/RegionsAO.jpg")
 ```
-
-@fig-map_sites shows the three study sites considered in this work. The first, named Lyon, is located in the Gulf of Lion, between Corsica and Spain. It covers a total area of `r as.character(round(polygons$area_km2[polygons$Site == "Lyon"],0))` km². The *Adriatic* region, situated between Italy and Croatia, covers a similar area of `r as.character(round(polygons$area_km2[polygons$Site == "Adriatic"],0))` km². The third region, *Cyprus*, is the smallest of the three. It is located south of the island of Cyprus and covers an area of `r as.character(round(polygons$area_km2[polygons$Site == "Cyprus"],0))` km².
 
 # Data investigation
 
@@ -200,19 +122,20 @@ m %>%
 #| error: false
 #| message: false
 #| warning: false
-#| fig-height: 10
+#| fig-height: 5
 
 
 library(plotly)
 
-colscale <- c("Adriatic" = "goldenrod","Lyon" = "darkgreen","Cyprus" = "darkred")
-p <- df %>%
+# colscale <- c("Adriatic" = "goldenrod","Lyon" = "darkgreen","Cyprus" = "darkred")
+p <- df_chla_STD%>%
+  pivot_longer(-c(Date,Region), values_to = "Value", names_to = "Metric") %>% 
   # dplyr::filter(Date >= date_min,
                 # Date <= date_max) %>%
-  ggplot(aes(x = Date, y = Value, color = Box))+
+  ggplot(aes(x = Date, y = Value, color = Region))+
   geom_point(size = 1)+
   geom_line(linewidth = 0.5)+
-  scale_color_manual(values = colscale)+
+  scale_color_manual(values = colpal)+
   # geom_smooth(method = "gam")+
   facet_wrap(~Metric,scales = "free", ncol = 2)+
   theme_bw()+
@@ -222,12 +145,6 @@ p <- df %>%
   ggplotly(p)
 
 ```
-
-@fig-overall_raw shows the variation of each response variable and of Chlorophyll-a over time, starting on 1 January 1999. *Lyon* is the site where Chlorophyll-a is most variable, with a minimum of `r round(min(df %>% dplyr::filter(Metric == "GeoMean_Chla", Box == "Lyon") %>% pull(Value)),2)` mg m⁻³ and a maximum of `r round(max(df %>% dplyr::filter(Metric == "GeoMean_Chla", Box == "Lyon") %>% pull(Value)),2)` mg m⁻³. On average, *Lyon* has a Chla concentration of `r round(mean(df %>% dplyr::filter(Metric == "GeoMean_Chla", Box == "Lyon") %>% pull(Value), na.rm = TRUE),2)` mg m⁻³, which is higher than those of the two other regions: `r round(mean(df %>% dplyr::filter(Metric == "GeoMean_Chla", Box == "Adriatic") %>% pull(Value), na.rm = TRUE),2)` mg m⁻³ for *Adriatic* and `r round(mean(df %>% dplyr::filter(Metric == "GeoMean_Chla", Box == "Cyprus") %>% pull(Value), na.rm = TRUE),2)` mg m⁻³ for *Cyprus*.
-
-*Lyon* is also the site where the mixed-layer depth (MLD) and nutrients (NO₃, NH₄, and PO₄) show the greatest variability.
-
-Heat flux (HF) and Sea Surface Temperature (SST) vary in the same way regardless of region. The yearly minimum SST in *Cyprus* is the warmest of all three regions, and overall, the yearly maximum SST is also highest in *Cyprus*, although it is quite close to the maxima of the other two regions.
 
 # Colinearity of variable
 
@@ -241,75 +158,45 @@ Heat flux (HF) and Sea Surface Temperature (SST) vary in the same way regardless
 #| out-width: "95%"
 
 library(GGally)
-df_wide %>% 
-  dplyr::select(-c(Date,Box,STD_Chla)) %>% 
+df_chla %>% 
+  dplyr::select(-c(Date,Region)) %>% 
  ggpairs() +
   theme_minimal()+
   theme(axis.text = element_blank())
 ```
-
-Highly correlated covariates were removed to prevent multicollinearity, which would otherwise inflate parameter uncertainty and obscure the individual ecological effects we aim to quantify. As shown in @fig-pairwise_plot1, PO₄ and NO₃ are almost perfectly correlated (R = 0.997). NO₃ is also strongly correlated with NH₄ (R = 0.77), and PO₄ with NH₄ (R = 0.742). Therefore, individual nutrient concentrations were excluded from the analysis. Instead, we included two derived variables:
-
-$$
-NPratio = (NO3+NH4)/PO4
-$$
-
-&
-
-$$
-TotalNutrient = PO4+NO3+NH4
-$$ These aggregated metrics provide more interpretable and independent representations of nutrient availability and stoichiometry (@fig-pairwise_plot2).
-
-```{r scatterplot2}
-#| label: fig-pairwise_plot2
-#| fig-cap: Pairwise scatter plot of each variable after variable selection
-#| echo: false
-#| error: false
-#| message: false
-#| warning: false
-#| out-width: "95%"
-
-library(GGally)
-df_wide %>% 
-  mutate(NPratio = (NO3+NH4)/PO4,
-         TotalNutrient = NO3+NH4+PO4) %>% 
-  dplyr::select(-c(Date,Box,STD_Chla,NO3,NH4,PO4)) %>% 
-  
- ggpairs() +
-  theme_minimal()+
-  theme(axis.text = element_blank())
-```
-
-As a result of the variable selection process, chlorophyll-a concentration will be modeled as a function of sea surface temperature (SST), sea surface salinity (SSS), mixed layer depth (MLD), heat flux (HF), nutrient stoichiometry (NP ratio), and total nutrient availability (TotalNutrient).
 
 # Model Building
 
-We fitted a Bayesian Generalised Additive Model (GAM) with a Gamma response in brms (Bürkner 2017, 2018, 2021) to explain the geometric-mean chlorophyll-a concentration (GeoMean_Chla) in for each of the 3 sites (one model for each site).
+We fitted a Bayesian Generalised Additive Model (GAM) with a Gamma response in brms (Bürkner 2017, 2018, 2021) to explain the geometric-mean chlorophyll-a concentration (GeoMean_Chla) in for each of the 10 sites.
 
-The response (*GeoMean_Chla*) is strictly positive and right-skewed, therefore we adopted a Gamma distribution with a log link (See equation below). Six environmental drivers, likewise available as monthly means, were entered as thin-plate regression splines to allow non-linear effects: sea-surface temperature (*SST*), sea-surface salinity (*SSS*), the nitrogen-to-phosphorus ratio (*NPratio*), summed dissolved nutrients (*TotalNutrient*), mixed-layer depth (*MLD*) and the Heat flux (*HF*). All predictors were centred and scaled prior to modelling. Weak but regularising priors were used: Student-t(3, 0, 2.5) for the intercept, half-Student-t(3, 0, 2.5) for each smooth's standard deviation, and Gamma(0.01, 0.01) for the Gamma shape parameter φ. Posterior inference relied on the NUTS Hamiltonian Monte-Carlo sampler with 4 chains × 10 000 iterations, discarding the first 1 000 iterations of each chain as warm-up. Convergence and sampling quality were verified by inspecting the Gelman--Rubin statistic (Rhat ≤ 1.01 for every parameter) together with bulk and tail effective sample sizes (all \> 5 000), confirming that the posterior was thoroughly explored and free of divergent transitions.
+We modeled chlorophyll-a concentration (*Chla*) as a strictly positive, right-skewed response using a Gamma distribution with a log link. Three key environmental drivers—sea-surface temperature (*SST*), ice cover (*IceCover*) and wind speed (*WindSpeed*)—were each entered as thin-plate regression splines whose shape was allowed to vary by Region, thus capturing potentially different non‐linear responses across regions. Weakly regularizing priors were placed on the intercept (Student-t(3, 0, 2.5)), on each spline’s smoothing standard deviation (half-Student-t(3, 0, 2.5)), and on the Gamma shape parameter φ (Gamma(0.01, 0.01)).
+
+Posterior inference was carried out via the NUTS Hamiltonian Monte Carlo sampler in brms (Bürkner 2017, 2018, 2021) with 4 chains, each run for 5 000 iterations (500 warm-up, 4500 post-warm-up). Convergence and sampling quality were assessed by inspecting the Gelman–Rubin statistic (all R̂ ≤ 1.01) and bulk and tail effective sample sizes (all > 1 000), confirming thorough exploration of the joint posterior. 
 
 \begin{aligned}
-\mathrm{GeoMean\_Chla}_{i} &\sim 
-      \mathrm{Gamma}\!\bigl(\mu_{i}\,\varphi,\;(1-\mu_{i})\,\varphi\bigr) \\[6pt]
+\mathrm{Chla}_i \;\bigl|\;\mu_i,\phi\bigr.
+&\sim \operatorname{Gamma}\bigl(\,\mathrm{shape} = \phi,\;\mathrm{rate} = \tfrac{\phi}{\mu_i}\bigr), \\[4pt]
 
-\log \mu_{i} &= \eta_{i} \\[4pt]
+E[\mathrm{Chla}_i] = \mu_i, \\[6pt]
 
-\eta_{i} &= 
-      \alpha
-    + f_{1}(\mathrm{SST}_{i})
-    + f_{2}(\mathrm{SSS}_{i})
-    + f_{3}(\mathrm{N{:}P}_{i})
-    + f_{4}(\mathrm{SumNutri}_{i})
-    + f_{5}(\mathrm{MLD}_{i})
-    + f_{6}(\mathrm{HF}_{i}) \\[8pt]
+\log(\mu_i) &= \eta_i, \\[4pt]
 
-f_{j}(x) &= \sum_{k=1}^{K_{j}} \beta_{jk}\,B_{jk}(x),
-\qquad j = 1,\dots,6 \\[10pt]
+\eta_i 
+&= \alpha
+   + f_1\bigl(\mathrm{SST}_i \mid \mathrm{Region}_i\bigr)
+   + f_2\bigl(\mathrm{IceCover}_i \mid \mathrm{Region}_i\bigr)
+   + f_3\bigl(\mathrm{WindSpeed}_i \mid \mathrm{Region}_i\bigr),
+   \\[8pt]
 
-\alpha     &\sim t_{3}(0,\,2.5) \\[2pt]
-\beta_{jk} &\sim \mathcal N\!\bigl(0,\,\sigma_{j}^{2}\bigr) \\[2pt]
-\sigma_{j} &\sim t^{+}_{3}(0,\,2.5) \\[2pt]
-\varphi    &\sim \mathrm{Gamma}(0.01,\,0.01)
+f_j(x \mid r)
+&= \sum_{k=1}^{K_j} \beta_{jkr}\,B_{jk}(x),
+\quad j = 1,2,3,\; r = 1,\dots,R, \\[10pt]
+
+\alpha &\sim t_{3}(0,\,2.5), \\[2pt]
+\beta_{jkr} &\sim \mathcal{N}\bigl(0,\sigma_j^{2}\bigr), \\[2pt]
+\sigma_j &\sim t^{+}_{3}(0,\,2.5),
+\quad j = 1,2,3, \\[2pt]
+\phi    &\sim \mathrm{Gamma}(0.01,\,0.01).
 \end{aligned}
 
 <!-- ```{r Interaction by boxes} -->
