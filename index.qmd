@@ -94,7 +94,6 @@ colpal <- c("Baffin Bay" = "#326CBE",
 <button onclick="window.open(&#39;https://github.com/SigOiry/AO_Chla_GAM&#39;, &#39;_blank&#39;);" style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;">
 
 Visit the Github repository
-
 </button>
 :::
 

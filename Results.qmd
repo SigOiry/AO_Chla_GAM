@@ -431,8 +431,29 @@ write.csv(df_SST_Manual, "ShinyApp/Results/df_SST_RAW.csv", row.names = F)
 write.csv(df_SST_Relatif, "ShinyApp/Results/df_SST_Relatif.csv", row.names = F)
 write.csv(df_WindSpeed_Manual, "ShinyApp/Results/df_WindSpeed_RAW.csv", row.names = F)
 write.csv(df_WindSpeed_Relatif, "ShinyApp/Results/df_WindSpeed_Relatif.csv", row.names = F)
+
+# ---- settings ----
+folder_to_zip <- "Outputs"   # directory whose contents you want to archive
+zip_file      <- "output.zip"
+
+# ---- create the zip ----
+# list all files (recursive = TRUE grabs sub-folders too; set FALSE if you only
+# want the top-level files)
+files <- list.files(folder_to_zip, recursive = TRUE, full.names = TRUE)
+
+# make sure you’re in the folder so the archive has relative paths, not full paths
+
+utils::zip(zipfile = zip_file, files = files)
+
+
 ```
 
+::: {style="text-align: center; margin-top: 20px;"}
+<button onclick="window.open(&#39;https://github.com/SigOiry/AO_Chla_GAM&#39;, &#39;_blank&#39;);" style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;">
+
+Download Results of the modelling
+</button>
+:::
 
 <!-- Inline CSS to wipe out any residual body/container padding -->
 <style>
