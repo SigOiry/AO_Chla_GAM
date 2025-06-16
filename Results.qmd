@@ -449,9 +449,9 @@ utils::zip(zipfile = zip_file, files = files)
 ```
 
 ::: {style="text-align: center; margin-top: 20px;"}
-<button onclick="window.open(&#39;https://github.com/SigOiry/AO_Chla_GAM&#39;, &#39;_blank&#39;);" style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;">
+<button onclick="window.open(&#39;https://github.com/SigOiry/AO_Chla_GAM/raw/refs/heads/main/output.zip&#39;, &#39;_blank&#39;);" style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;">
 
-Download Results of the modelling
+Download Results of the modeling
 </button>
 :::
 

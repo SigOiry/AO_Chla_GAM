@@ -166,19 +166,19 @@ df_chla %>%
 
 # Model Building
 
-We fitted a Bayesian Generalised Additive Model (GAM) with a Gamma response in brms (Bürkner 2017, 2018, 2021) to explain the geometric-mean chlorophyll-a concentration (GeoMean_Chla) in for each of the 10 sites.
+We fitted a Bayesian Generalised Additive Model (GAM) in brms (Bürkner 2017, 2018, 2021) to explain the geometric-mean chlorophyll-a concentration (*GeoMean_Chla*) across 10 sites. To improve model convergence and account for heavy-tailed residuals, chlorophyll-a values were first log-transformed and then standardized (z-scored) prior to modelling. The standardized log-transformed Chla was modelled using a Student's t-distribution, which allows for heavier tails and increased robustness to outliers compared to the Gaussian.
 
-We modeled chlorophyll-a concentration (*Chla*) as a strictly positive, right-skewed response using a Gamma distribution with a log link. Three key environmental drivers—sea-surface temperature (*SST*), ice cover (*IceCover*) and wind speed (*WindSpeed*)—were each entered as thin-plate regression splines whose shape was allowed to vary by Region, thus capturing potentially different non‐linear responses across regions. Weakly regularizing priors were placed on the intercept (Student-t(3, 0, 2.5)), on each spline’s smoothing standard deviation (half-Student-t(3, 0, 2.5)), and on the Gamma shape parameter φ (Gamma(0.01, 0.01)).
+Three key environmental drivers—sea-surface temperature (*SST*), ice cover (*IceCover*), and wind speed (*WindSpeed*)—were included as thin-plate regression splines with region-specific smooths to capture potentially different non-linear responses across regions. Weakly regularizing priors were placed on the intercept (Student-t(3, 0, 2.5)), on each spline’s smoothing standard deviation (half-Student-t(3, 0, 2.5)), and on the residual standard deviation (half-Student-t(3, 0, 2.5)).
 
-Posterior inference was carried out via the NUTS Hamiltonian Monte Carlo sampler in brms (Bürkner 2017, 2018, 2021) with 4 chains, each run for 5 000 iterations (500 warm-up, 4500 post-warm-up). Convergence and sampling quality were assessed by inspecting the Gelman–Rubin statistic (all R̂ ≤ 1.01) and bulk and tail effective sample sizes (all > 1 000), confirming thorough exploration of the joint posterior. 
+Posterior inference was performed using the No-U-Turn Sampler (NUTS), a Hamiltonian Monte Carlo method implemented in brms, with 4 chains of 5,000 iterations each (500 warm-up, 4,500 post-warm-up). Convergence diagnostics indicated satisfactory sampling, with all Gelman–Rubin statistics (R̂) ≤ 1.01 and all bulk and tail effective sample sizes > 1,000, confirming a thorough exploration of the joint posterior.
 
 \begin{aligned}
-\mathrm{Chla}_i \;\bigl|\;\mu_i,\phi\bigr.
-&\sim \operatorname{Gamma}\bigl(\,\mathrm{shape} = \phi,\;\mathrm{rate} = \tfrac{\phi}{\mu_i}\bigr), \\[4pt]
+z\bigl(\log(\mathrm{Chla}_i)\bigr) \;\bigl|\; \mu_i, \sigma, \nu
+&\sim t_\nu(\mu_i,\,\sigma), \\[6pt]
 
-E[\mathrm{Chla}_i] = \mu_i, \\[6pt]
+E\bigl[z(\log(\mathrm{Chla}_i))\bigr] &= \mu_i, \\[6pt]
 
-\log(\mu_i) &= \eta_i, \\[4pt]
+\mu_i &= \eta_i, \\[4pt]
 
 \eta_i 
 &= \alpha
@@ -192,11 +192,13 @@ f_j(x \mid r)
 \quad j = 1,2,3,\; r = 1,\dots,R, \\[10pt]
 
 \alpha &\sim t_{3}(0,\,2.5), \\[2pt]
-\beta_{jkr} &\sim \mathcal{N}\bigl(0,\sigma_j^{2}\bigr), \\[2pt]
+\beta_{jkr} &\sim \mathcal{N}(0,\,\sigma_j^{2}), \\[2pt]
 \sigma_j &\sim t^{+}_{3}(0,\,2.5),
 \quad j = 1,2,3, \\[2pt]
-\phi    &\sim \mathrm{Gamma}(0.01,\,0.01).
+\sigma &\sim t^{+}_{3}(0,\,2.5), \\[2pt]
+\nu &\sim \mathrm{Gamma}(2,\,0.1).
 \end{aligned}
+
 
 <!-- ```{r Interaction by boxes} -->
 
