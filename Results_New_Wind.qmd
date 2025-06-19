@@ -1,0 +1,266 @@
+---
+title: "Results of the modeling"
+format:
+  html:
+    page-layout: full   
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r Open Chlorophyll}
+#| cache: false
+#| echo: false
+#| warning: false
+#| eval: true
+
+library(brms)
+library(tidyverse)
+library(Utilities.Package)
+
+# Read in
+df_chla <- read.csv("Data/data_AO_for_GAMs_env_factors_chl_geomean.csv") %>% 
+  # mutate(Region = as.factor(Region)) %>% 
+  dplyr::filter(!is.nan(Chl)) %>% 
+  rename(IceCover = "Ice",
+         WindSpeed = "Wind") %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  group_by(Metric, Region) %>% 
+  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))),
+         Date = as.Date(Date, "%Y-%m-%d"))%>%
+  ungroup() %>% 
+  pivot_wider(values_from = Value, names_from = Metric)
+
+(df_wind <- read.csv("Data/data_AO_for_GAMs_wind_speed.csv") %>% 
+  pivot_longer(-Date, names_to = "Bordel",values_to = "Value")%>%
+  separate(Bordel, into = c("Region", "Metric"), sep = "_") %>% 
+  mutate(Region = str_replace_all(Region, "\\.", " "),
+         Date = case_when(
+                  substr(Date, 4, 6) == "Jan" ~ gsub("Jan", "01", Date),
+                  substr(Date, 4, 6) == "Feb" ~ gsub("Feb", "02", Date),
+                  substr(Date, 4, 6) == "Mar" ~ gsub("Mar", "03", Date),
+                  substr(Date, 4, 6) == "Apr" ~ gsub("Apr", "04", Date),
+                  substr(Date, 4, 6) == "May" ~ gsub("May", "05", Date),
+                  substr(Date, 4, 6) == "Jun" ~ gsub("Jun", "06", Date),
+                  substr(Date, 4, 6) == "Jul" ~ gsub("Jul", "07", Date),
+                  substr(Date, 4, 6) == "Aug" ~ gsub("Aug", "08", Date),
+                  substr(Date, 4, 6) == "Sep" ~ gsub("Sep", "09", Date),
+                  substr(Date, 4, 6) == "Oct" ~ gsub("Oct", "10", Date),
+                  substr(Date, 4, 6) == "Nov" ~ gsub("Nov", "11", Date),
+                  substr(Date, 4, 6) == "Dec" ~ gsub("Dec", "12", Date),
+                  TRUE ~ Date),
+         Date = as.Date(Date, "%d-%m-%Y")
+  )%>%
+  group_by(Metric, Region) %>% 
+  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))))%>%
+  ungroup()%>% 
+  pivot_wider(values_from = Value, names_from = Metric)
+)
+
+df_all <- df_chla %>% 
+  left_join(df_wind, by = c("Region","Date")) %>% 
+  drop_na() %>% 
+  rename(P90_WindSpeed = "P90",
+         Mean_WindSpeed_Above10 = "MeanAbove10",
+         Freq_WindSpeed_Above10 = "FreqAbove10")
+
+df_back_to_raw <- df_all %>% 
+  pivot_longer(-c(Date, Region), values_to = "values", names_to = "metrics") %>% 
+  group_by(metrics, Region) %>% 
+  reframe(avg = mean(values, na.rm = T),
+          sd = sd(values, na.rm=T))
+
+df_chla_STD <- df_all %>% 
+  group_by(Region) %>%
+  mutate(across(c(Chl, SST, IceCover, WindSpeed,P90_WindSpeed,Mean_WindSpeed_Above10,Freq_WindSpeed_Above10),
+                ~ ( .x - mean(.x, na.rm = TRUE) ) / sd(.x, na.rm = TRUE ))) %>% 
+  ungroup()
+
+fit <- brm(
+  formula = Chl ~ 
+    s(SST, by = Region) +
+    s(IceCover, by = Region) +
+    s(P90_WindSpeed, by = Region) +
+    s(Mean_WindSpeed_Above10, by = Region) +
+    s(Freq_WindSpeed_Above10, by = Region) + 
+    s(WindSpeed, by = Region),
+  data = df_chla_STD,
+  family =  student(),
+  chains = 4, cores = 15,
+  iter = 200,
+  warmup = 20,
+  control = list(adapt_delta = 0.95),
+  file = "chla_gam_by_region_NewWind_STD_Student_identity_200"
+)
+
+
+colpal <- c("Baffin Bay" = "#326CBE",
+            "Barents Sea" = "#C2E5B4",
+            "Basin" = "#1F408D",
+            "Beaufort Sea"= "#808064",
+            "Canadian Archipelago"= "#199A98",
+            "Chukchi Sea"= "#538CB2",
+            "East Siberian Sea"= "#38B423",
+            "Kara Sea" = "#98BF39",
+            "Laptev Sea" = "#A7C6EB",
+            "Nordic Sea" = "#4D3374")
+
+```
+
+```{r Fit_Df_Building}
+#| cache: false
+#| echo: false
+#| warning: false
+#| eval: true
+
+library(tidyverse)
+library(brms)
+library(patchwork)
+
+df_back_to_raw <- df_all %>% 
+  pivot_longer(-c(Date, Region), values_to = "values", names_to = "metrics") %>% 
+  group_by(metrics, Region) %>% 
+  reframe(avg = mean(values, na.rm = T),
+          sd = sd(values, na.rm=T))
+
+df_back_to_raw_chla <- df_back_to_raw %>% dplyr::filter(metrics == "Chl")
+
+
+
+for (Reg in unique(df_back_to_raw$Region)) {
+  for (Met in unique(df_back_to_raw$metrics)[-1]){
+    
+    df_temp <- df_chla_STD %>% 
+      dplyr::filter(Region == Reg) %>% 
+      dplyr::select(-c(Date,Region,Chl)) %>% 
+      reframe(across(everything(), ~ round(mean(.x, na.rm = T),0)))%>%
+      slice(rep(1, 200)) %>% 
+      mutate(Region = Reg)
+    
+    df_temp[[Met]] <- seq(min(df_chla_STD %>% 
+                                        dplyr::filter(Region == Reg) %>% 
+                                        pull(Met)),
+                                  max(df_chla_STD %>% 
+                                        dplyr::filter(Region == Reg) %>% 
+                                        pull(Met)),length.out=200)
+    if (!exists(Reg)){
+      df_Reg <- list()
+      df_Reg[[Met]] <- df_temp
+      assign(Reg,df_Reg)
+    }else{
+      df_Reg <- get(Reg)
+      df_Reg[[Met]] <- df_temp
+      assign(Reg,df_Reg)
+    }
+    
+  }
+}
+
+df_all_fit <-mget(unique(df_all$Region))
+rm(list = unique(df_back_to_raw$Region))
+```
+
+```{r fit all_variable }
+#| cache: false
+#| echo: false
+#| warning: false
+#| eval: true
+
+library(tidybayes)
+
+df_all_draws <- df_all_fit %>%
+  imap(function(region_list, region_name) {
+    # Unscaling .linpred using region-level avg/sd
+    region_avg <- df_back_to_raw_chla %>% filter(Region == region_name) %>% pull(avg)
+    region_sd  <- df_back_to_raw_chla %>% filter(Region == region_name) %>% pull(sd)
+
+    imap(region_list, function(df_metric, metric_name) {
+      # Unscaling the *metric* variable using metric-specific avg/sd
+      metric_avg <- df_back_to_raw %>% filter(metrics == metric_name,
+                                              Region == region_name) %>% pull(avg)
+      metric_sd  <- df_back_to_raw %>% filter(metrics == metric_name,
+                                              Region == region_name) %>% pull(sd)
+
+      df_metric %>%
+        add_linpred_draws(fit, ndraws = 500) %>%
+        mutate(
+          # unscale model output
+          .linpred = .linpred * region_sd + region_avg,
+          .linpred = if_else(.linpred < 0, 0, .linpred),
+          # unscale the metric column itself
+          !!metric_name := .data[[metric_name]] * metric_sd + metric_avg
+        ) %>%
+  group_by(!!sym(metric_name)) %>%
+  reframe(tidybayes::median_qi(.linpred, .width = 0.80)) %>% 
+        mutate(Region = region_name)
+      
+      
+    })
+  })
+
+```
+
+```{r plot variables}
+#| cache: false
+#| echo: false
+#| warning: false
+#| eval: true
+
+library(patchwork)
+
+all_plots <- df_all_draws %>%
+  imap(function(region_list, region_name) {
+    # Unscaling .linpred using region-level avg/sd
+
+    imap(region_list, function(df_metric, metric_name) {
+      # Unscaling the *metric* variable using metric-specific avg/sd
+      df_metric %>%
+        ggplot(aes(x = !!sym(metric_name) ,y=y)) +
+          geom_ribbon(aes(ymax = ymax,ymin=ymin,
+                        fill=Region),
+                        alpha=0.4,  show.legend = F)+
+          geom_line(colour="black",size = 1)+
+                  scale_fill_manual(values = colpal)+
+            facet_wrap(~Region, scales = "free_x")+
+              ylab("Chla Concentration (mg.m⁻³)")+
+              xlab(metric_name)+
+            theme_bw()
+      })
+  })
+
+plots_by_metric <- transpose(all_plots)
+
+# Create one combined plot per metric
+combined_metric_plots <- map(plots_by_metric, function(metric_plots) {
+  wrap_plots(metric_plots, ncol = 3)
+})
+
+
+combined_metric_plots$Freq_WindSpeed_Above10
+combined_metric_plots$Mean_WindSpeed_Above10
+combined_metric_plots$P90_WindSpeed
+```
+
+
+::: {style="text-align: center; margin-top: 20px;"}
+<button onclick="window.open(&#39;https://github.com/SigOiry/AO_Chla_GAM/raw/refs/heads/main/output.zip&#39;, &#39;_blank&#39;);" style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;">
+
+Download Results of the modeling
+</button>
+:::
+
+<!-- Inline CSS to wipe out any residual body/container padding -->
+<style>
+  body, .quarto-page, .quarto-container {
+    margin: 0;
+    padding: 0;
+  }
+</style>
+
+<!-- Full-width iframe holding the Shiny app -->
+<iframe
+  src="https://polychaeteapp.shinyapps.io/results/"
+  width="100%"
+  height="900"
+  style="border: none; margin: 0; padding: 0;">
+</iframe>
+
