@@ -1,15 +1,20 @@
 project:
   type: website
   output-dir: "docs"
-
+  render:
+    - index.qmd
+    - Results_New_Wind.qmd
+    - Seasonality_of_variables.qmd
 website:
-  title: "Chla Variability of the Med Sea"
+  title: "Chla Variability of Arctic Ocean"
   navbar:
     left:
       - href: index.qmd
         text: Home
-      - href: Results.qmd
+      - href: Results_New_Wind.qmd
         text: Results 
+      - href: Seasonality_of_variables.qmd
+        text: Seasonality of variables
 format:
   html:
     theme:

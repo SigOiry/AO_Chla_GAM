@@ -1,10 +1,24 @@
 [
   {
-    "objectID": "Results.html",
-    "href": "Results.html",
-    "title": "Results of the modeling",
+    "objectID": "Seasonality_of_variables.html",
+    "href": "Seasonality_of_variables.html",
+    "title": "Temporality of variables",
     "section": "",
-    "text": "Download Results of the modeling"
+    "text": "Figure 1: Times series of Chlorophyll since 1998 in each Regions.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nFigure 2: Times series of Sea surface Temperature since 1998 in each Regions.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nFigure 3: Times series of IceCover since 1998 in each Regions.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nFigure 4: Times series of average Wind Speed since 1998 in each Regions.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nFigure 5: Times series of the percentile 90 of wind speed since 1998 in each Regions.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nFigure 6: Times series of the average wind speed above 10 m.s-1 since 1998 in each Regions.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nFigure 7: Times series of the proportion of time above 10 m.s-1 since 1998 in each Regions."
+  },
+  {
+    "objectID": "Seasonality_of_variables.html#times-series-of-variables",
+    "href": "Seasonality_of_variables.html#times-series-of-variables",
+    "title": "Temporality of variables",
+    "section": "",
+    "text": "Figure 1: Times series of Chlorophyll since 1998 in each Regions.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nFigure 2: Times series of Sea surface Temperature since 1998 in each Regions.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nFigure 3: Times series of IceCover since 1998 in each Regions.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nFigure 4: Times series of average Wind Speed since 1998 in each Regions.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nFigure 5: Times series of the percentile 90 of wind speed since 1998 in each Regions.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nFigure 6: Times series of the average wind speed above 10 m.s-1 since 1998 in each Regions.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nFigure 7: Times series of the proportion of time above 10 m.s-1 since 1998 in each Regions."
+  },
+  {
+    "objectID": "Seasonality_of_variables.html#seasonality-of-variables",
+    "href": "Seasonality_of_variables.html#seasonality-of-variables",
+    "title": "Temporality of variables",
+    "section": "Seasonality of Variables",
+    "text": "Seasonality of Variables\n\nChlorophyll\n\n\n\n\n\n\n\n\nFigure 8: Seasonality of chlorophyll for each regions\n\n\n\n\n\n\n\nSST\n\n\n\n\n\n\n\n\nFigure 9: Seasonality of SST for each regions\n\n\n\n\n\n\n\nIceCover\n\n\n\n\n\n\n\n\nFigure 10: Seasonality of IceCover for each regions\n\n\n\n\n\n\n\nWindSpeed\n\n\n\n\n\n\n\n\nFigure 11: Seasonality of WindSpeed for each regions\n\n\n\n\n\n\n\nP90_WindSpeed\n\n\n\n\n\n\n\n\nFigure 12: Seasonality of P90_WindSpeed for each regions\n\n\n\n\n\n\n\nMean_WindSpeed_Above10\n\n\n\n\n\n\n\n\nFigure 13: Seasonality of Mean_WindSpeed_Above10 for each regions\n\n\n\n\n\n\n\nFreq_WindSpeed_Above10\n\n\n\n\n\n\n\n\nFigure 14: Seasonality of Mean_WindSpeed_Above10 for each regions"
   },
   {
     "objectID": "index.html",
@@ -12,5 +26,12 @@
     "title": "What are the environmental factors that drive chlorophyll-a (Chl-a) concentration in the Arctic Ocean?",
     "section": "",
     "text": "Visit the Github repository\n\n\n\nStudy sites\n\n\n\n\n\n\n\n\nFigure 1: Map of the AO regions investigated in this study\n\n\n\n\n\n\n\nData investigation\n\n\n\n\n\n\n\n\nFigure 2: Time Serie of Chla and environmental varibles\n\n\n\n\n\n\nColinearity of variable\n\n\n\n\n\n\n\n\nFigure 3: Pairwise scatter plot of each variable\n\n\n\n\n\n\n\nModel Building\nWe fitted a Bayesian Generalised Additive Model (GAM) in brms (Bürkner 2017, 2018, 2021) to explain the geometric-mean chlorophyll-a concentration (GeoMean_Chla) across 10 sites. To improve model convergence and account for heavy-tailed residuals, chlorophyll-a values were first log-transformed and then standardized (z-scored) prior to modelling. The standardized log-transformed Chla was modelled using a Student’s t-distribution, which allows for heavier tails and increased robustness to outliers compared to the Gaussian.\nThree key environmental drivers—sea-surface temperature (SST), ice cover (IceCover), and wind speed (WindSpeed)—were included as thin-plate regression splines with region-specific smooths to capture potentially different non-linear responses across regions. Weakly regularizing priors were placed on the intercept (Student-t(3, 0, 2.5)), on each spline’s smoothing standard deviation (half-Student-t(3, 0, 2.5)), and on the residual standard deviation (half-Student-t(3, 0, 2.5)).\nPosterior inference was performed using the No-U-Turn Sampler (NUTS), a Hamiltonian Monte Carlo method implemented in brms, with 4 chains of 5,000 iterations each (500 warm-up, 4,500 post-warm-up). Convergence diagnostics indicated satisfactory sampling, with all Gelman–Rubin statistics (R̂) ≤ 1.01 and all bulk and tail effective sample sizes &gt; 1,000, confirming a thorough exploration of the joint posterior.\n\\[\\begin{aligned}\nz\\bigl(\\log(\\mathrm{Chla}_i)\\bigr) \\;\\bigl|\\; \\mu_i, \\sigma, \\nu\n&\\sim t_\\nu(\\mu_i,\\,\\sigma), \\\\[6pt]\n\nE\\bigl[z(\\log(\\mathrm{Chla}_i))\\bigr] &= \\mu_i, \\\\[6pt]\n\n\\mu_i &= \\eta_i, \\\\[4pt]\n\n\\eta_i\n&= \\alpha\n   + f_1\\bigl(\\mathrm{SST}_i \\mid \\mathrm{Region}_i\\bigr)\n   + f_2\\bigl(\\mathrm{IceCover}_i \\mid \\mathrm{Region}_i\\bigr)\n   + f_3\\bigl(\\mathrm{WindSpeed}_i \\mid \\mathrm{Region}_i\\bigr),\n   \\\\[8pt]\n\nf_j(x \\mid r)\n&= \\sum_{k=1}^{K_j} \\beta_{jkr}\\,B_{jk}(x),\n\\quad j = 1,2,3,\\; r = 1,\\dots,R, \\\\[10pt]\n\n\\alpha &\\sim t_{3}(0,\\,2.5), \\\\[2pt]\n\\beta_{jkr} &\\sim \\mathcal{N}(0,\\,\\sigma_j^{2}), \\\\[2pt]\n\\sigma_j &\\sim t^{+}_{3}(0,\\,2.5),\n\\quad j = 1,2,3, \\\\[2pt]\n\\sigma &\\sim t^{+}_{3}(0,\\,2.5), \\\\[2pt]\n\\nu &\\sim \\mathrm{Gamma}(2,\\,0.1).\n\\end{aligned}\\]"
+  },
+  {
+    "objectID": "Results_New_Wind.html",
+    "href": "Results_New_Wind.html",
+    "title": "Results of the modeling",
+    "section": "",
+    "text": "Download Results of the modeling"
   }
 ]

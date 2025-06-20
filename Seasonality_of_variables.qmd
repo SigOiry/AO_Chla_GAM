@@ -1,0 +1,430 @@
+---
+title: "Temporality of variables"
+format:
+  html:
+    page-layout: full
+    css: styles.css
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r library}
+#| cache: false
+#| echo: false
+#| warning: false
+
+library(tidyverse)
+library(lubridate)
+library(brms)
+library(purrr)
+library(dplyr)
+library(Utilities.Package)
+```
+
+```{r Open Chlorophyll}
+#| cache: false
+#| echo: false
+#| eval: true
+#| warning: false
+
+#| cache: false
+#| echo: false
+#| warning: false
+#| eval: true
+
+library(brms)
+library(tidyverse)
+library(Utilities.Package)
+
+# Read in
+df_chla <- read.csv("Data/data_AO_for_GAMs_env_factors_chl_geomean.csv") %>% 
+  # mutate(Region = as.factor(Region)) %>% 
+  dplyr::filter(!is.nan(Chl)) %>% 
+  rename(IceCover = "Ice",
+         WindSpeed = "Wind") %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  group_by(Metric, Region) %>% 
+  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))),
+         Date = as.Date(Date, "%Y-%m-%d"))%>%
+  ungroup() %>% 
+  pivot_wider(values_from = Value, names_from = Metric)
+
+df_wind <- read.csv("Data/data_AO_for_GAMs_wind_speed.csv") %>% 
+  pivot_longer(-Date, names_to = "Bordel",values_to = "Value")%>%
+  separate(Bordel, into = c("Region", "Metric"), sep = "_") %>% 
+  mutate(Region = str_replace_all(Region, "\\.", " "),
+         Date = case_when(
+                  substr(Date, 4, 6) == "Jan" ~ gsub("Jan", "01", Date),
+                  substr(Date, 4, 6) == "Feb" ~ gsub("Feb", "02", Date),
+                  substr(Date, 4, 6) == "Mar" ~ gsub("Mar", "03", Date),
+                  substr(Date, 4, 6) == "Apr" ~ gsub("Apr", "04", Date),
+                  substr(Date, 4, 6) == "May" ~ gsub("May", "05", Date),
+                  substr(Date, 4, 6) == "Jun" ~ gsub("Jun", "06", Date),
+                  substr(Date, 4, 6) == "Jul" ~ gsub("Jul", "07", Date),
+                  substr(Date, 4, 6) == "Aug" ~ gsub("Aug", "08", Date),
+                  substr(Date, 4, 6) == "Sep" ~ gsub("Sep", "09", Date),
+                  substr(Date, 4, 6) == "Oct" ~ gsub("Oct", "10", Date),
+                  substr(Date, 4, 6) == "Nov" ~ gsub("Nov", "11", Date),
+                  substr(Date, 4, 6) == "Dec" ~ gsub("Dec", "12", Date),
+                  TRUE ~ Date),
+         Date = as.Date(Date, "%d-%m-%Y")
+  )%>%
+  group_by(Metric, Region) %>% 
+  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))))%>%
+  ungroup()%>% 
+  pivot_wider(values_from = Value, names_from = Metric)
+
+
+df_all <- df_chla %>% 
+  left_join(df_wind, by = c("Region","Date")) %>% 
+  drop_na() %>% 
+  rename(P90_WindSpeed = "P90",
+         Mean_WindSpeed_Above10 = "MeanAbove10",
+         Freq_WindSpeed_Above10 = "FreqAbove10")
+
+colscale <- c("Baffin Bay" = "#326CBE",
+            "Barents Sea" = "#C2E5B4",
+            "Basin" = "#1F408D",
+            "Beaufort Sea"= "#808064",
+            "Canadian Archipelago"= "#199A98",
+            "Chukchi Sea"= "#538CB2",
+            "East Siberian Sea"= "#38B423",
+            "Kara Sea" = "#98BF39",
+            "Laptev Sea" = "#A7C6EB",
+            "Nordic Sea" = "#4D3374")
+```
+
+
+## Times series of variables
+### Chlorophyll
+
+```{r plot time series Chlorophyll}
+#| echo: false
+#| warning: false
+#| fig-cap: "Times series of Chlorophyll since 1998 in each Regions."
+#| label: fig-TimeSeries_All_Chlorophyll
+#| out-width: "99%"
+#| fig-height: 7
+
+df_all %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  dplyr::filter(Metric == "Chl") %>% 
+  ggplot(aes(x = Date, y =  Value, color = Region))+
+  geom_line()+
+  ylab("Chla (mg.m-3)")+
+  facet_wrap(~Region, scales = "free_x", ncol = 3)+
+  theme_minimal()+
+  scale_color_manual(values = colscale)
+```
+
+### SST
+
+```{r plot time series SST}
+#| echo: false
+#| warning: false
+#| fig-cap: "Times series of Sea surface Temperature since 1998 in each Regions."
+#| label: fig-TimeSeries_All_SST
+#| out-width: "99%"
+#| fig-height: 7
+
+df_all %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  dplyr::filter(Metric == "SST") %>% 
+  ggplot(aes(x = Date, y =  Value, color = Region))+
+  geom_line()+
+  facet_wrap(~Region, scales = "free_x", ncol = 3)+
+  theme_minimal()+
+  scale_color_manual(values = colscale) +
+  ylab("SST (°C)")
+```
+
+### IceCover             
+
+```{r plot time series IceCover}
+#| echo: false
+#| warning: false
+#| fig-cap: "Times series of IceCover since 1998 in each Regions."
+#| label: fig-TimeSeries_All_IceCover
+#| out-width: "99%"
+#| fig-height: 7
+
+df_all %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  dplyr::filter(Metric == "IceCover") %>% 
+  ggplot(aes(x = Date, y =  Value, color = Region))+
+  geom_line()+
+  facet_wrap(~Region, scales = "free_x", ncol = 3)+
+  theme_minimal()+
+  scale_color_manual(values = colscale) +
+  ylab("IceCover (proportion)")
+```
+
+### WindSpeed             
+
+```{r plot time series WindSpeed}
+#| echo: false
+#| warning: false
+#| fig-cap: "Times series of average Wind Speed since 1998 in each Regions."
+#| label: fig-TimeSeries_All_WindSpeed
+#| out-width: "99%"
+#| fig-height: 7
+
+df_all %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  dplyr::filter(Metric == "WindSpeed") %>% 
+  ggplot(aes(x = Date, y =  Value, color = Region))+
+  geom_line()+
+  facet_wrap(~Region, scales = "free_x", ncol = 3)+
+  theme_minimal()+
+  scale_color_manual(values = colscale) +
+  ylab("Wind Speed (m.s-1)")
+```
+
+### P90_WindSpeed             
+
+```{r plot time series P90_WindSpeed}
+#| echo: false
+#| warning: false
+#| fig-cap: "Times series of the percentile 90 of wind speed since 1998 in each Regions."
+#| label: fig-TimeSeries_All_P90_WindSpeed
+#| out-width: "99%"
+#| fig-height: 7
+
+df_all %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  dplyr::filter(Metric == "P90_WindSpeed") %>% 
+  ggplot(aes(x = Date, y =  Value, color = Region))+
+  geom_line()+
+  facet_wrap(~Region, scales = "free_x", ncol = 3)+
+  theme_minimal()+
+  scale_color_manual(values = colscale) +
+  ylab("p90 of Wind Speed (m.s-1)")
+```
+
+### Mean_WindSpeed_Above10
+
+```{r plot time series Mean_WindSpeed_Above10}
+#| echo: false
+#| warning: false
+#| fig-cap: "Times series of the average wind speed above 10 m.s-1 since 1998 in each Regions."
+#| label: fig-TimeSeries_All_Mean_WindSpeed_Above10
+#| out-width: "99%"
+#| fig-height: 7
+
+df_all %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  dplyr::filter(Metric == "Mean_WindSpeed_Above10") %>% 
+  ggplot(aes(x = Date, y =  Value, color = Region))+
+  geom_line()+
+  facet_wrap(~Region, scales = "free_x", ncol = 3)+
+  theme_minimal()+
+  scale_color_manual(values = colscale) +
+  ylab("Mean_WindSpeed_Above10 (m.s-1)")
+```
+
+### Freq_WindSpeed_Above10
+
+```{r plot time series Freq_WindSpeed_Above10}
+#| echo: false
+#| warning: false
+#| fig-cap: "Times series of the proportion of time above 10 m.s-1 since 1998 in each Regions."
+#| label: fig-TimeSeries_All_Freq_WindSpeed_Above10
+#| out-width: "99%"
+#| fig-height: 7
+
+df_all %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  dplyr::filter(Metric == "Freq_WindSpeed_Above10") %>% 
+  ggplot(aes(x = Date, y =  Value, color = Region))+
+  geom_line()+
+  facet_wrap(~Region, scales = "free_x", ncol = 3)+
+  theme_minimal()+
+  scale_color_manual(values = colscale) +
+  ylab("Freq_WindSpeed_Above10 (m.s-1)")
+```
+
+
+## Seasonality of Variables
+
+### Chlorophyll
+
+```{r plot Seasonality of Chlorophyll}
+#| echo: false
+#| warning: false
+#| fig-cap: "Seasonality of chlorophyll for each regions"
+#| label: fig-season_Chla
+#| out-width: "99%"
+#| fig-height: 7
+
+df_all %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  dplyr::filter(Metric == "Chl") %>% 
+  mutate(days = yday(Date),
+         days = case_when(days %in% c(60,91,121,152,182,213,244,274) ~ days +1,
+                          T ~ days)) %>% 
+  ggplot(aes(x = days, y =  Value, color = Region))+
+  geom_boxplot(alpha = 0.2, aes(group = days), width = 10)+
+  geom_smooth(method = "loess") + 
+  ylab("Chla (mg.m-3)")+
+  facet_wrap(~Region, scales = "free", ncol = 3)+
+  theme_minimal()+
+  scale_color_manual(values = colscale)
+
+```
+
+
+### SST
+
+```{r plot Seasonality of SST}
+#| echo: false
+#| warning: false
+#| fig-cap: "Seasonality of SST for each regions"
+#| label: fig-season_SST
+#| out-width: "99%"
+#| fig-height: 7
+
+df_all %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  dplyr::filter(Metric == "SST") %>% 
+  mutate(days = yday(Date),
+         days = case_when(days %in% c(60,91,121,152,182,213,244,274) ~ days +1,
+                          T ~ days)) %>% 
+  ggplot(aes(x = days, y =  Value, color = Region))+
+  geom_boxplot(alpha = 0.2, aes(group = days), width = 10)+
+  geom_smooth(method = "loess") + 
+  ylab("SST (°C)")+
+  facet_wrap(~Region, scales = "free", ncol = 3)+
+  theme_minimal()+
+  scale_color_manual(values = colscale)
+
+```
+
+### IceCover
+
+```{r plot Seasonality of IceCover}
+#| echo: false
+#| warning: false
+#| fig-cap: "Seasonality of IceCover for each regions"
+#| label: fig-season_IceCover
+#| out-width: "99%"
+#| fig-height: 7
+
+df_all %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  dplyr::filter(Metric == "IceCover") %>% 
+  mutate(days = yday(Date),
+         days = case_when(days %in% c(60,91,121,152,182,213,244,274) ~ days +1,
+                          T ~ days)) %>% 
+  ggplot(aes(x = days, y =  Value, color = Region))+
+  geom_boxplot(alpha = 0.2, aes(group = days), width = 10)+
+  geom_smooth(method = "loess") + 
+  ylab("IceCover (proportion)")+
+  facet_wrap(~Region, scales = "free", ncol = 3)+
+  theme_minimal()+
+  scale_color_manual(values = colscale)
+
+```
+
+### WindSpeed
+
+```{r plot Seasonality of WindSpeed}
+#| echo: false
+#| warning: false
+#| fig-cap: "Seasonality of WindSpeed for each regions"
+#| label: fig-season_WindSpeed
+#| out-width: "99%"
+#| fig-height: 7
+
+df_all %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  dplyr::filter(Metric == "WindSpeed") %>% 
+  mutate(days = yday(Date),
+         days = case_when(days %in% c(60,91,121,152,182,213,244,274) ~ days +1,
+                          T ~ days)) %>% 
+  ggplot(aes(x = days, y =  Value, color = Region))+
+  geom_boxplot(alpha = 0.2, aes(group = days), width = 10)+
+  geom_smooth(method = "loess") + 
+  ylab("WindSpeed (m.s-1)")+
+  facet_wrap(~Region, scales = "free", ncol = 3)+
+  theme_minimal()+
+  scale_color_manual(values = colscale)
+
+```
+
+### P90_WindSpeed
+
+```{r plot Seasonality of P90_WindSpeed}
+#| echo: false
+#| warning: false
+#| fig-cap: "Seasonality of P90_WindSpeed for each regions"
+#| label: fig-season_P90_WindSpeed
+#| out-width: "99%"
+#| fig-height: 7
+
+df_all %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  dplyr::filter(Metric == "P90_WindSpeed") %>% 
+  mutate(days = yday(Date),
+         days = case_when(days %in% c(60,91,121,152,182,213,244,274) ~ days +1,
+                          T ~ days)) %>% 
+  ggplot(aes(x = days, y =  Value, color = Region))+
+  geom_boxplot(alpha = 0.2, aes(group = days), width = 10)+
+  geom_smooth(method = "loess") + 
+  ylab("P90_WindSpeed (m.s-1)")+
+  facet_wrap(~Region, scales = "free", ncol = 3)+
+  theme_minimal()+
+  scale_color_manual(values = colscale)
+
+```
+
+### Mean_WindSpeed_Above10
+
+```{r plot Seasonality of Mean_WindSpeed_Above10}
+#| echo: false
+#| warning: false
+#| fig-cap: "Seasonality of Mean_WindSpeed_Above10 for each regions"
+#| label: fig-season_Mean_WindSpeed_Above10
+#| out-width: "99%"
+#| fig-height: 7
+
+df_all %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  dplyr::filter(Metric == "Mean_WindSpeed_Above10") %>% 
+  mutate(days = yday(Date),
+         days = case_when(days %in% c(60,91,121,152,182,213,244,274) ~ days +1,
+                          T ~ days)) %>% 
+  ggplot(aes(x = days, y =  Value, color = Region))+
+  geom_boxplot(alpha = 0.2, aes(group = days), width = 10)+
+  geom_smooth(method = "loess") + 
+  ylab("Mean_WindSpeed_Above10 (m.s-1)")+
+  facet_wrap(~Region, scales = "free", ncol = 3)+
+  theme_minimal()+
+  scale_color_manual(values = colscale)
+
+```
+
+### Freq_WindSpeed_Above10
+
+```{r plot Seasonality of Mean_WindSpeed_Above10}
+#| echo: false
+#| warning: false
+#| fig-cap: "Seasonality of Mean_WindSpeed_Above10 for each regions"
+#| label: fig-season_Freq_WindSpeed_Above10
+#| out-width: "99%"
+#| fig-height: 7
+
+df_all %>% 
+  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+  dplyr::filter(Metric == "Freq_WindSpeed_Above10") %>% 
+  mutate(days = yday(Date),
+         days = case_when(days %in% c(60,91,121,152,182,213,244,274) ~ days +1,
+                          T ~ days)) %>% 
+  ggplot(aes(x = days, y =  Value, color = Region))+
+  geom_boxplot(alpha = 0.2, aes(group = days), width = 10)+
+  geom_smooth(method = "loess") + 
+  ylab("Freq_WindSpeed_Above10 (proportion)")+
+  facet_wrap(~Region, scales = "free", ncol = 3)+
+  theme_minimal()+
+  scale_color_manual(values = colscale)
+
+```

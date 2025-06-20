@@ -30,7 +30,7 @@ df_chla <- read.csv("Data/data_AO_for_GAMs_env_factors_chl_geomean.csv") %>%
   ungroup() %>% 
   pivot_wider(values_from = Value, names_from = Metric)
 
-(df_wind <- read.csv("Data/data_AO_for_GAMs_wind_speed.csv") %>% 
+df_wind <- read.csv("Data/data_AO_for_GAMs_wind_speed.csv") %>% 
   pivot_longer(-Date, names_to = "Bordel",values_to = "Value")%>%
   separate(Bordel, into = c("Region", "Metric"), sep = "_") %>% 
   mutate(Region = str_replace_all(Region, "\\.", " "),
@@ -54,7 +54,7 @@ df_chla <- read.csv("Data/data_AO_for_GAMs_env_factors_chl_geomean.csv") %>%
   mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))))%>%
   ungroup()%>% 
   pivot_wider(values_from = Value, names_from = Metric)
-)
+
 
 df_all <- df_chla %>% 
   left_join(df_wind, by = c("Region","Date")) %>% 
@@ -236,8 +236,35 @@ combined_metric_plots <- map(plots_by_metric, function(metric_plots) {
   wrap_plots(metric_plots, ncol = 3)
 })
 
+saveRDS(combined_metric_plots, "ShinyApp/Results/Data_plot_winds.rds")
 
-combined_metric_plots$Freq_WindSpeed_Above10
+
+# combined_metric_plots$Freq_WindSpeed_Above10
+
+
+for (region in names(df_all_draws)) {
+  for (metric in names(df_all_draws[[region]])) {
+    df <- df_all_draws[[region]][[metric]] %>% 
+      dplyr::select(-c(.width,.point,.interval))
+    fname <- paste0(region, "_", metric, ".csv")                # e.g. "North_sales.csv"
+    write.csv(df,
+              file      = file.path("Outputs", fname),
+              row.names = FALSE)
+  }
+}
+
+# ---- settings ----
+folder_to_zip <- "Outputs"   # directory whose contents you want to archive
+zip_file      <- "output.zip"
+
+# ---- create the zip ----
+# list all files (recursive = TRUE grabs sub-folders too; set FALSE if you only
+# want the top-level files)
+files <- list.files(folder_to_zip, recursive = TRUE, full.names = TRUE)
+
+# make sure you’re in the folder so the archive has relative paths, not full paths
+
+utils::zip(zipfile = zip_file, files = files)
 
 ```
 
@@ -261,7 +288,7 @@ Download Results of the modeling
 <iframe
   src="https://polychaeteapp.shinyapps.io/results/"
   width="100%"
-  height="900"
+  height="1000"
   style="border: none; margin: 0; padding: 0;">
 </iframe>
 
