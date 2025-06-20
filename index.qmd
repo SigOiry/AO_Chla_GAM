@@ -27,47 +27,55 @@ library(Utilities.Package)
 #| echo: false
 #| warning: false
 
+library(brms)
+library(tidyverse)
+library(Utilities.Package)
+
 # Read in
-df_chla <- readxl::read_xlsx("Data/Chla_and_Environment.xlsx") %>% 
-  mutate(Date = as.Date(gsub("'","",Date)),
-         `CHL (mg m-3)` = as.numeric(`CHL (mg m-3)`), 
-         Region = as.factor(Region)) %>% 
-  dplyr::filter(!is.nan(`CHL (mg m-3)`)) %>% 
-  rename(Chla = "CHL (mg m-3)",
-         SST = "SST (degrees C)",
-         IceCover = "ICE (cover)",
-         WindSpeed = "WINDSPEED (m s-1)") %>% 
-  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
-  group_by(Metric, Region) %>% 
-  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))))%>% 
-  ungroup() %>% 
-  pivot_wider(values_from = Value, names_from = Metric)
-
-
 df_chla <- read.csv("Data/data_AO_for_GAMs_env_factors_chl_geomean.csv") %>% 
-  mutate(Region = as.factor(Region)) %>% 
+  # mutate(Region = as.factor(Region)) %>% 
   dplyr::filter(!is.nan(Chl)) %>% 
   rename(IceCover = "Ice",
          WindSpeed = "Wind") %>% 
   pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
   group_by(Metric, Region) %>% 
-  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))))%>% 
+  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))),
+         Date = as.Date(Date, "%Y-%m-%d"))%>%
   ungroup() %>% 
   pivot_wider(values_from = Value, names_from = Metric)
 
-df_chla_STD <- read.csv("Data/data_AO_for_GAMs_env_factors_chl_geomean.csv") %>% 
-  mutate(Region = as.factor(Region)) %>% 
-  dplyr::filter(!is.nan(Chl)) %>% 
-  rename(IceCover = "Ice",
-         WindSpeed = "Wind") %>% 
-  pivot_longer(-c(Date,Region), names_to = "Metric", values_to = "Value") %>% 
+df_wind <- read.csv("Data/data_AO_for_GAMs_wind_speed.csv") %>% 
+  pivot_longer(-Date, names_to = "Bordel",values_to = "Value")%>%
+  separate(Bordel, into = c("Region", "Metric"), sep = "_") %>% 
+  mutate(Region = str_replace_all(Region, "\\.", " "),
+         Date = case_when(
+                  substr(Date, 4, 6) == "Jan" ~ gsub("Jan", "01", Date),
+                  substr(Date, 4, 6) == "Feb" ~ gsub("Feb", "02", Date),
+                  substr(Date, 4, 6) == "Mar" ~ gsub("Mar", "03", Date),
+                  substr(Date, 4, 6) == "Apr" ~ gsub("Apr", "04", Date),
+                  substr(Date, 4, 6) == "May" ~ gsub("May", "05", Date),
+                  substr(Date, 4, 6) == "Jun" ~ gsub("Jun", "06", Date),
+                  substr(Date, 4, 6) == "Jul" ~ gsub("Jul", "07", Date),
+                  substr(Date, 4, 6) == "Aug" ~ gsub("Aug", "08", Date),
+                  substr(Date, 4, 6) == "Sep" ~ gsub("Sep", "09", Date),
+                  substr(Date, 4, 6) == "Oct" ~ gsub("Oct", "10", Date),
+                  substr(Date, 4, 6) == "Nov" ~ gsub("Nov", "11", Date),
+                  substr(Date, 4, 6) == "Dec" ~ gsub("Dec", "12", Date),
+                  TRUE ~ Date),
+         Date = as.Date(Date, "%d-%m-%Y")
+  )%>%
   group_by(Metric, Region) %>% 
-  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))))%>% 
-  ungroup() %>% 
-  pivot_wider(values_from = Value, names_from = Metric) %>%
-  group_by(Region) %>% 
-  mutate(across(c(SST, IceCover, WindSpeed),
-                ~ ( .x - mean(.x, na.rm = TRUE) ) / sd(.x, na.rm = TRUE )))
+  mutate(Value = scales::squish(Value, c(stats::quantile(Value, probs = 0.01, na.rm = T),stats::quantile(Value, probs = 0.99, na.rm = T))))%>%
+  ungroup()%>% 
+  pivot_wider(values_from = Value, names_from = Metric)
+
+
+df_all <- df_chla %>% 
+  left_join(df_wind, by = c("Region","Date")) %>% 
+  drop_na() %>% 
+  rename(P90_WindSpeed = "P90",
+         Mean_WindSpeed_Above10 = "MeanAbove10",
+         Freq_WindSpeed_Above10 = "FreqAbove10")
 
 ```
 
@@ -94,6 +102,7 @@ colpal <- c("Baffin Bay" = "#326CBE",
 <button onclick="window.open(&#39;https://github.com/SigOiry/AO_Chla_GAM&#39;, &#39;_blank&#39;);" style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;">
 
 Visit the Github repository
+
 </button>
 :::
 
@@ -127,11 +136,11 @@ knitr::include_graphics("img/RegionsAO.jpg")
 library(plotly)
 
 # colscale <- c("Adriatic" = "goldenrod","Lyon" = "darkgreen","Cyprus" = "darkred")
-p <- df_chla_STD%>%
+p <- df_all%>%
   pivot_longer(-c(Date,Region), values_to = "Value", names_to = "Metric") %>% 
   # dplyr::filter(Date >= date_min,
                 # Date <= date_max) %>%
-  ggplot(aes(x = Date, y = Value, color = Region))+
+  ggplot(aes(x = Date, y = Value, color = Region, group = Metric))+
   geom_point(size = 1)+
   geom_line(linewidth = 0.5)+
   scale_color_manual(values = colpal)+
@@ -141,7 +150,8 @@ p <- df_chla_STD%>%
   theme(legend.position = "top")
 
 
-  ggplotly(p)
+  ggplotly(p,
+           dynamicTicks = TRUE,)
 
 ```
 
@@ -157,7 +167,7 @@ p <- df_chla_STD%>%
 #| out-width: "95%"
 
 library(GGally)
-df_chla %>% 
+df_all %>% 
   dplyr::select(-c(Date,Region)) %>% 
  ggpairs() +
   theme_minimal()+
@@ -166,40 +176,40 @@ df_chla %>%
 
 # Model Building
 
-We fitted a Bayesian Generalised Additive Model (GAM) in brms (Bürkner 2017, 2018, 2021) to explain the geometric-mean chlorophyll-a concentration (*GeoMean_Chla*) across 10 sites. To improve model convergence and account for heavy-tailed residuals, chlorophyll-a values were first log-transformed and then standardized (z-scored) prior to modelling. The standardized log-transformed Chla was modelled using a Student's t-distribution, which allows for heavier tails and increased robustness to outliers compared to the Gaussian.
+We fitted a Bayesian Generalised Additive Model (GAM) in brms (Bürkner 2017–2021) to explain geometric-mean chlorophyll-a (*GeoMean_Chla*) across 10 sites. To improve convergence and account for differing scales, both the response and all five environmental drivers (*SST, IceCover, Mean_WindSpeed_Above10, Freq_WindSpeed_Above10, WindSpeed*) were standardized (z-scored) prior to modelling. The standardized response was then modelled with a Student’s t likelihood for robustness to outliers, and each predictor entered as a thin-plate spline with region-specific smooths. Basic weakly-informative priors were used throughout.
 
-Three key environmental drivers—sea-surface temperature (*SST*), ice cover (*IceCover*), and wind speed (*WindSpeed*)—were included as thin-plate regression splines with region-specific smooths to capture potentially different non-linear responses across regions. Weakly regularizing priors were placed on the intercept (Student-t(3, 0, 2.5)), on each spline’s smoothing standard deviation (half-Student-t(3, 0, 2.5)), and on the residual standard deviation (half-Student-t(3, 0, 2.5)).
+Posterior inference used NUTS with 4 chains of 5 000 iterations (500 warm-up). All Rhat ≤1.01 and effective sample sizes > 1 000, indicating good convergence.
 
-Posterior inference was performed using the No-U-Turn Sampler (NUTS), a Hamiltonian Monte Carlo method implemented in brms, with 4 chains of 5,000 iterations each (500 warm-up, 4,500 post-warm-up). Convergence diagnostics indicated satisfactory sampling, with all Gelman–Rubin statistics (R̂) ≤ 1.01 and all bulk and tail effective sample sizes > 1,000, confirming a thorough exploration of the joint posterior.
-
+```{=tex}
 \begin{aligned}
-z\bigl(\log(\mathrm{Chla}_i)\bigr) \;\bigl|\; \mu_i, \sigma, \nu
-&\sim t_\nu(\mu_i,\,\sigma), \\[6pt]
-
-E\bigl[z(\log(\mathrm{Chla}_i))\bigr] &= \mu_i, \\[6pt]
-
+y_i &= z(\mathrm{Chla}_i), 
+\quad
+x_{ji} = z(\mathrm{Covariate}_{j,i}),\; j=1,\dots,5, \\[6pt]
+y_i \mid \mu_i,\sigma,\nu
+&\sim t_\nu(\mu_i,\sigma), \\[6pt]
 \mu_i &= \eta_i, \\[4pt]
-
 \eta_i 
 &= \alpha
    + f_1\bigl(\mathrm{SST}_i \mid \mathrm{Region}_i\bigr)
-   + f_2\bigl(\mathrm{IceCover}_i \mid \mathrm{Region}_i\bigr)
-   + f_3\bigl(\mathrm{WindSpeed}_i \mid \mathrm{Region}_i\bigr),
-   \\[8pt]
-
-f_j(x \mid r)
-&= \sum_{k=1}^{K_j} \beta_{jkr}\,B_{jk}(x),
-\quad j = 1,2,3,\; r = 1,\dots,R, \\[10pt]
-
-\alpha &\sim t_{3}(0,\,2.5), \\[2pt]
-\beta_{jkr} &\sim \mathcal{N}(0,\,\sigma_j^{2}), \\[2pt]
-\sigma_j &\sim t^{+}_{3}(0,\,2.5),
-\quad j = 1,2,3, \\[2pt]
-\sigma &\sim t^{+}_{3}(0,\,2.5), \\[2pt]
-\nu &\sim \mathrm{Gamma}(2,\,0.1).
+   + f_2\bigl(\mathrm{IceCover}_i \mid \mathrm{Region}_i\bigr) \\[-2pt]
+&\quad
+   + f_3\bigl(\mathrm{Mean\_WindSpeed\_Above10}_i \mid \mathrm{Region}_i\bigr)
+   + f_4\bigl(\mathrm{Freq\_WindSpeed\_Above10}_i \mid \mathrm{Region}_i\bigr) \\[-2pt]
+&\quad
+   + f_5\bigl(\mathrm{WindSpeed}_i \mid \mathrm{Region}_i\bigr),
+\\[8pt]
+f_j(x\mid r)
+&= \sum_{k=1}^{K_j}\beta_{jkr}\,B_{jk}(x),
+\quad r=1,\dots,R,\; j=1,\dots,5,
+\\[8pt]
+\alpha &\sim t_{3}(0,2.5), \\[2pt]
+\beta_{jkr} &\sim \mathcal{N}(0,\sigma_j^{2}), \\[2pt]
+\sigma_j &\sim t^{+}_{3}(0,2.5),\; j=1,\dots,5, \\[2pt]
+\sigma &\sim t^{+}_{3}(0,2.5), \\[2pt]
+\nu &\sim \mathrm{Gamma}(2,0.1).
 \end{aligned}
 
-
+```
 <!-- ```{r Interaction by boxes} -->
 
 <!-- # Fit a GAM where each smooth is allowed to vary by Box -->
