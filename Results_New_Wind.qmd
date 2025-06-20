@@ -73,23 +73,24 @@ df_chla_STD <- df_all %>%
   group_by(Region) %>%
   mutate(across(c(Chl, SST, IceCover, WindSpeed,P90_WindSpeed,Mean_WindSpeed_Above10,Freq_WindSpeed_Above10),
                 ~ ( .x - mean(.x, na.rm = TRUE) ) / sd(.x, na.rm = TRUE ))) %>% 
-  ungroup()
+  ungroup() %>% 
+  dplyr::select(-P90_WindSpeed)
 
 fit <- brm(
   formula = Chl ~ 
     s(SST, by = Region) +
     s(IceCover, by = Region) +
-    s(P90_WindSpeed, by = Region) +
+    # s(P90_WindSpeed, by = Region) +
     s(Mean_WindSpeed_Above10, by = Region) +
     s(Freq_WindSpeed_Above10, by = Region) + 
     s(WindSpeed, by = Region),
   data = df_chla_STD,
   family =  student(),
   chains = 4, cores = 15,
-  iter = 200,
-  warmup = 20,
+  iter = 5000,
+  warmup = 500,
   control = list(adapt_delta = 0.95),
-  file = "chla_gam_by_region_NewWind_STD_Student_identity_200"
+  file = "chla_gam_by_region_NewWind_STD_Student_identity_5000"
 )
 
 
@@ -118,6 +119,7 @@ library(patchwork)
 
 df_back_to_raw <- df_all %>% 
   pivot_longer(-c(Date, Region), values_to = "values", names_to = "metrics") %>% 
+  dplyr::filter(metrics != "P90_WindSpeed") %>% 
   group_by(metrics, Region) %>% 
   reframe(avg = mean(values, na.rm = T),
           sd = sd(values, na.rm=T))
@@ -236,8 +238,7 @@ combined_metric_plots <- map(plots_by_metric, function(metric_plots) {
 
 
 combined_metric_plots$Freq_WindSpeed_Above10
-combined_metric_plots$Mean_WindSpeed_Above10
-combined_metric_plots$P90_WindSpeed
+
 ```
 
 
